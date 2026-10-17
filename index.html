@@ -54,7 +54,7 @@
       @apply inline-grid place-items-center rounded-xl p-2 text-slate-300 transition hover:bg-white/5 hover:text-white active:scale-95;
     }
     .tab-btn {
-      @apply flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-400 transition hover:text-slate-200;
+      @apply flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-bold sm:gap-2 sm:px-4 text-slate-400 transition hover:text-slate-200;
     }
     .tab-btn.active {
       @apply bg-violet-600 text-white shadow-lg shadow-violet-600/25;
@@ -89,7 +89,7 @@
         </div>
         <div>
           <h1 class="text-base font-extrabold leading-tight tracking-tight">LiftLog</h1>
-          <p class="text-[11px] leading-tight text-slate-400">筋トレ重量メモ＆体重記録</p>
+          <p class="hidden text-[11px] leading-tight text-slate-400 sm:block">筋トレ重量メモ＆体重記録</p>
         </div>
       </div>
       <div class="flex items-center gap-1.5">
@@ -145,6 +145,7 @@
         <button class="tab-btn" data-tab="workout" role="tab"><i data-lucide="dumbbell"></i>筋トレ</button>
         <button class="tab-btn" data-tab="weight" role="tab"><i data-lucide="scale"></i>体重</button>
         <button class="tab-btn" data-tab="stats" role="tab"><i data-lucide="chart-line"></i>統計</button>
+        <button class="tab-btn" data-tab="ai" role="tab"><i data-lucide="sparkles"></i>AI</button>
       </div>
 
       <!-- 筋トレタブ -->
@@ -202,6 +203,34 @@
           </div>
           <div id="weightHistory"></div>
         </section>
+      </div>
+
+      <!-- AIコーチタブ -->
+      <div id="tabAI" class="hidden space-y-4">
+        <section class="card p-4 sm:p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-3">
+              <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-lg shadow-violet-600/30">
+                <i data-lucide="sparkles" class="h-5 w-5 text-white"></i>
+              </div>
+              <div>
+                <h2 class="font-bold">AIコーチ</h2>
+                <p class="text-xs text-slate-400">直近90日の記録をもとに、AI（Gemini）がアドバイスします</p>
+              </div>
+            </div>
+            <button id="aiReset" class="btn btn-ghost hidden shrink-0 text-xs"><i data-lucide="rotate-ccw"></i>新しい相談</button>
+          </div>
+          <div id="aiNotice" class="mt-4 hidden rounded-xl bg-slate-800/60 px-4 py-3 text-sm text-slate-300 ring-1 ring-white/5"></div>
+          <div id="aiPresets" class="mt-4 flex flex-wrap gap-2"></div>
+          <form id="aiForm" class="mt-3 flex gap-2" autocomplete="off">
+            <input id="aiInput" class="input min-w-0 flex-1" maxlength="500" placeholder="自由に質問（例：最近脚やってる？）">
+            <button id="aiSend" type="submit" class="btn btn-primary px-3" title="送信"><i data-lucide="send"></i></button>
+          </form>
+          <p class="mt-2 text-[11px] leading-relaxed text-slate-500">
+            送信すると、記録（種目名・重量・回数・日付・体重）がGoogleのGemini APIに送られます。AIの回答は参考情報です。痛みや体調の不安があるときは専門家に相談してください。
+          </p>
+        </section>
+        <div id="aiThread" class="space-y-3"></div>
       </div>
 
       <!-- 統計タブ -->
@@ -471,7 +500,7 @@
     const savedUI = loadUI();
     const ui = {
       date: todayStr(),
-      tab: ['workout', 'weight', 'stats'].includes(savedUI.tab) ? savedUI.tab : 'workout',
+      tab: ['workout', 'weight', 'stats', 'ai'].includes(savedUI.tab) ? savedUI.tab : 'workout',
       calYear: new Date().getFullYear(),
       calMonth: new Date().getMonth(),
       calOpen: false,
@@ -656,7 +685,9 @@
       $('#tabWorkout').classList.toggle('hidden', ui.tab !== 'workout');
       $('#tabWeight').classList.toggle('hidden', ui.tab !== 'weight');
       $('#tabStats').classList.toggle('hidden', ui.tab !== 'stats');
+      $('#tabAI').classList.toggle('hidden', ui.tab !== 'ai');
       if (ui.tab === 'stats') renderAnalytics();
+      if (ui.tab === 'ai') renderAI();
     }
 
     /* =========================================================
@@ -1451,6 +1482,221 @@
     }).observe($('#statChart'));
 
     /* =========================================================
+     * AIコーチ（Firebase AI Logic + Gemini Developer API）
+     * ========================================================= */
+    // 先頭から順に試し、使えないモデルなら次へ
+    const AI_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+    const AI_SYSTEM = [
+      'あなたは経験豊富なパーソナルトレーナー兼ストレングスコーチです。',
+      'ユーザーの筋トレ記録と体重記録を読み、日本語でアドバイスしてください。',
+      '- 記録データに基づいて具体的に答える（日付・種目名・重量・回数を引用する）。',
+      '- 種目名から鍛えている部位を推測し、部位のバランスや頻度にも目を配る。',
+      '- 結論から先に書き、全体で400字程度。見出し（##）と箇条書き（-）で読みやすくする。',
+      '- 記録から分からないことは推測であると明示する。データが少ない場合はその旨を伝える。',
+      '- 怪我・痛み・病気・極端な減量など医療的な判断が必要な内容には踏み込まず、専門家への相談を勧める。',
+      '- 重量の単位は kg。',
+    ].join('\n');
+    const AI_PRESETS = [
+      ['最近の振り返り', '直近のトレーニング全体を振り返って、良い点・気になる点・次の1週間でやるべきことを教えて。'],
+      ['部位のバランス', '部位ごとのトレーニング頻度のバランスを見て、最近やれていない部位があれば教えて。'],
+      ['伸び悩み診断', '種目ごとの推定1RMの推移から、伸びている種目と停滞している種目を教えて。停滞している種目には対策も提案して。'],
+      ['次回のメニュー', '今日の時点で、次回のトレーニングメニューを種目・重量・回数・セット数まで具体的に提案して。'],
+      ['体重の推移', '体重の推移について、トレーニング内容との関係も含めてコメントして。'],
+    ];
+    const aiState = {
+      mod: null, ai: null, modelIdx: 0,
+      history: [],     // Gemini に渡す会話履歴（1通目にだけ記録データを含める）
+      messages: [],    // 画面表示用 { role: 'user' | 'model', text, error }
+      busy: false,
+    };
+    const aiAvailable = () => mode === 'cloud' && !!cloud.user && !!cloud.app;
+
+    // 直近90日の記録を、AIが読みやすいテキストにまとめる
+    function buildAIContext() {
+      const today = todayStr();
+      const from = addDays(today, -89);
+      const e1rm = (sets) => Math.max(...sets.map((s) => s.weight * (1 + s.reps / 30)));
+      const lines = [`今日の日付: ${today}（${WD[parseDate(today).getDay()]}曜日）`, ''];
+
+      lines.push('## 種目ごとのまとめ');
+      const dates = Object.keys(state.workouts).sort();
+      for (const ex of state.exercises) {
+        const sessions = dates
+          .map((d) => { const en = state.workouts[d].find((e) => e.exerciseId === ex.id); const vs = en ? validSets(en.sets) : []; return vs.length ? { d, vs } : null; })
+          .filter(Boolean);
+        if (!sessions.length) { lines.push(`- ${ex.name}: 記録なし`); continue; }
+        const last = sessions[sessions.length - 1];
+        const recent = sessions.filter((x) => x.d >= from);
+        const best = Math.max(...sessions.map((x) => e1rm(x.vs)));
+        let trend = '';
+        if (recent.length >= 2) trend = `／推定1RM ${r1(e1rm(recent[0].vs))}kg（${recent[0].d}）→ ${r1(e1rm(last.vs))}kg（${last.d}）`;
+        else trend = `／推定1RM 最新 ${r1(e1rm(last.vs))}kg`;
+        lines.push(`- ${ex.name}: 最終実施 ${last.d}（${daysBetween(last.d, today)}日前）／直近90日で${recent.length}回${trend}／自己ベスト推定1RM ${r1(best)}kg`);
+      }
+
+      lines.push('', '## 直近90日のトレーニング記録（重量kg×回数）');
+      const recentDates = dates.filter((d) => d >= from);
+      let count = 0;
+      for (const d of recentDates) {
+        const parts = state.workouts[d]
+          .map((en) => { const vs = validSets(en.sets); if (!vs.length) return null; const ex = getExercise(en.exerciseId); return `${ex ? ex.name : '不明な種目'} ${vs.map((s) => `${fmtNum(s.weight)}×${s.reps}`).join(', ')}`; })
+          .filter(Boolean);
+        if (parts.length) { lines.push(`${d}(${WD[parseDate(d).getDay()]}): ${parts.join(' / ')}`); count++; }
+      }
+      if (!count) lines.push('記録なし');
+
+      lines.push('', '## 直近90日の体重（kg）');
+      const bw = Object.keys(state.bodyweight).sort().filter((d) => d >= from);
+      lines.push(bw.length ? bw.map((d) => `${d}: ${state.bodyweight[d].toFixed(2)}`).join('\n') : '記録なし');
+      return lines.join('\n');
+    }
+
+    // AIの回答（簡易Markdown）を安全なHTMLに変換
+    function mdToHtml(md) {
+      const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>');
+      const out = [];
+      let list = null;
+      const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+      for (const raw of md.split('\n')) {
+        const line = raw.trimEnd();
+        let m;
+        if ((m = line.match(/^#{1,4}\s+(.*)/))) {
+          closeList();
+          out.push(`<h4 class="mt-3 mb-1 font-bold text-violet-200 first:mt-0">${inline(m[1])}</h4>`);
+        } else if ((m = line.match(/^\s*[-*・]\s+(.*)/))) {
+          if (list !== 'ul') { closeList(); out.push('<ul class="my-1 list-disc space-y-1 pl-5">'); list = 'ul'; }
+          out.push(`<li>${inline(m[1])}</li>`);
+        } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) {
+          if (list !== 'ol') { closeList(); out.push('<ol class="my-1 list-decimal space-y-1 pl-5">'); list = 'ol'; }
+          out.push(`<li>${inline(m[1])}</li>`);
+        } else if (!line.trim()) {
+          closeList();
+        } else {
+          closeList();
+          out.push(`<p class="my-1.5">${inline(line)}</p>`);
+        }
+      }
+      closeList();
+      return out.join('');
+    }
+
+    function aiErrorMessage(e) {
+      const msg = String((e && (e.message || e.code)) || e);
+      if (/api-not-enabled|has not been used|is disabled|SERVICE_DISABLED/i.test(msg)) {
+        return 'FirebaseでAI Logicが有効になっていません。Firebaseコンソールの「AI サービス → AI Logic」で「始める」を押し、「Gemini Developer API」を選んで設定してください。';
+      }
+      if (/429|quota|RESOURCE_EXHAUSTED|rate/i.test(msg)) return '無料枠の利用上限に達したか、混み合っています。しばらく時間をおいてからお試しください。';
+      if (/network|fetch|Failed to fetch/i.test(msg)) return 'ネットワークに接続できません。';
+      return `AIの呼び出しに失敗しました（${msg.slice(0, 160)}）`;
+    }
+    const isModelNotFound = (e) => /404|not found|NOT_FOUND|is not supported|unsupported model|limit:\s*0|free.?tier/i.test(String((e && e.message) || e));
+
+    async function getAIModel() {
+      if (!aiState.mod) aiState.mod = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-ai.js`);
+      if (!aiState.ai) aiState.ai = aiState.mod.getAI(cloud.app, { backend: new aiState.mod.GoogleAIBackend() });
+      return aiState.mod.getGenerativeModel(aiState.ai, { model: AI_MODELS[aiState.modelIdx], systemInstruction: AI_SYSTEM });
+    }
+
+    async function askAI(question) {
+      const q = question.trim();
+      if (!q || aiState.busy) return;
+      if (!aiAvailable()) { toast('AIコーチを使うにはログインしてください', 'error'); return; }
+      aiState.busy = true;
+      const isFirst = aiState.history.length === 0;
+      const prompt = isFirst ? `以下は私のトレーニング記録です。\n\n${buildAIContext()}\n\n---\n質問：${q}` : q;
+      aiState.messages.push({ role: 'user', text: q });
+      const reply = { role: 'model', text: '', error: '' };
+      aiState.messages.push(reply);
+      renderAIThread();
+      $('#aiInput').value = '';
+
+      for (;;) {
+        try {
+          const model = await getAIModel();
+          const chat = model.startChat({ history: aiState.history });
+          const result = await chat.sendMessageStream(prompt);
+          for await (const chunk of result.stream) {
+            reply.text += chunk.text();
+            updateLastAIBubble(reply);
+          }
+          aiState.history.push(
+            { role: 'user', parts: [{ text: prompt }] },
+            { role: 'model', parts: [{ text: reply.text }] },
+          );
+          break;
+        } catch (e) {
+          console.error(e);
+          if (!reply.text && isModelNotFound(e) && aiState.modelIdx < AI_MODELS.length - 1) {
+            aiState.modelIdx++;
+            continue; // 別のモデルで再試行
+          }
+          reply.error = aiErrorMessage(e);
+          break;
+        }
+      }
+      aiState.busy = false;
+      renderAIThread();
+    }
+
+    function aiBubbleHTML(msg, i) {
+      if (msg.role === 'user') {
+        return `<div class="flex justify-end"><div class="max-w-[85%] rounded-2xl rounded-br-md bg-violet-600 px-4 py-2.5 text-sm text-white shadow-lg shadow-violet-600/20">${esc(msg.text)}</div></div>`;
+      }
+      const loading = !msg.text && !msg.error;
+      return `
+        <div class="card px-4 py-3 text-sm leading-relaxed text-slate-200" data-ai-msg="${i}">
+          <div class="mb-1 flex items-center gap-1.5 text-[11px] font-bold text-violet-300"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>AIコーチ</div>
+          <div data-role="ai-body">${loading ? '<span class="inline-flex gap-1 py-1"><span class="h-2 w-2 animate-bounce rounded-full bg-violet-400"></span><span class="h-2 w-2 animate-bounce rounded-full bg-violet-400 [animation-delay:.15s]"></span><span class="h-2 w-2 animate-bounce rounded-full bg-violet-400 [animation-delay:.3s]"></span></span>' : mdToHtml(msg.text)}</div>
+          ${msg.error ? `<p class="mt-2 rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-300 ring-1 ring-rose-400/30">${esc(msg.error)}</p>` : ''}
+        </div>`;
+    }
+
+    function renderAIThread() {
+      $('#aiThread').innerHTML = aiState.messages.map(aiBubbleHTML).join('');
+      $('#aiReset').classList.toggle('hidden', !aiState.messages.length || aiState.busy);
+      renderAIStatus();
+      icons();
+      const last = $('#aiThread').lastElementChild;
+      if (last && aiState.busy) last.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function updateLastAIBubble(msg) {
+      const body = $(`[data-ai-msg="${aiState.messages.length - 1}"] [data-role="ai-body"]`);
+      if (body) body.innerHTML = mdToHtml(msg.text);
+    }
+
+    function renderAIStatus() {
+      const ok = aiAvailable();
+      const notice = $('#aiNotice');
+      notice.classList.toggle('hidden', ok);
+      if (!ok) {
+        notice.textContent = CLOUD_ENABLED
+          ? 'AIコーチを使うには、右上のボタンからログインしてください。'
+          : 'AIコーチを使うにはFirebaseの設定が必要です。';
+      }
+      $('#aiInput').disabled = !ok || aiState.busy;
+      $('#aiSend').disabled = !ok || aiState.busy;
+      $$('#aiPresets button').forEach((b) => { b.disabled = !ok || aiState.busy; });
+    }
+
+    function renderAI() {
+      $('#aiPresets').innerHTML = AI_PRESETS.map(([label], i) =>
+        `<button data-preset="${i}" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-200 ring-1 ring-white/10 transition hover:bg-slate-700 disabled:opacity-40">${label}</button>`).join('');
+      renderAIThread();
+    }
+
+    $('#aiPresets').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-preset]');
+      if (b) askAI(AI_PRESETS[Number(b.dataset.preset)][1]);
+    });
+    $('#aiForm').addEventListener('submit', (e) => { e.preventDefault(); askAI($('#aiInput').value); });
+    $('#aiReset').addEventListener('click', () => {
+      aiState.history = [];
+      aiState.messages = [];
+      renderAIThread();
+    });
+
+    /* =========================================================
      * 全体描画
      * ========================================================= */
     function renderAll() {
@@ -1462,6 +1708,7 @@
       renderWeight();
       renderStats();
       renderAuth();
+      renderAIStatus();
       if (isModalOpen()) renderExList();
       icons();
     }
@@ -1479,6 +1726,7 @@
     const EMPTY_DAY_KEY = JSON.stringify({ workouts: [], bodyweight: null });
     const cloud = {
       A: null, F: null,          // firebase-auth / firebase-firestore モジュール
+      app: null,
       auth: null, db: null,
       authResolved: false,
       user: null,
@@ -1572,6 +1820,7 @@
         cloud.A = authM;
         cloud.F = fsM;
         const app = appM.initializeApp(FIREBASE_CONFIG);
+        cloud.app = app;
         cloud.auth = authM.getAuth(app);
         try {
           // オフラインでも記録でき、電波が戻ったら自動で送信される
@@ -1631,6 +1880,8 @@
       clearTimeout(cloud.timer);
       cloud.user = null;
       cloud.initialized = false;
+      aiState.history = [];
+      aiState.messages = [];
       mode = 'local';
       setLastMode('local');
       state = load();
