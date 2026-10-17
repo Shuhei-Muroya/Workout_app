@@ -228,6 +228,15 @@
     <div class="flex flex-col items-center gap-3 text-slate-300">
       <div class="h-10 w-10 animate-spin rounded-full border-4 border-violet-500/30 border-t-violet-500"></div>
       <p class="text-sm font-semibold">クラウドから読み込み中…</p>
+      <div id="loadingHelp" class="hidden max-w-xs px-4 text-center">
+        <p class="text-xs leading-relaxed text-slate-400">
+          クラウドに接続できません。ネット接続と、Firebaseで Firestore Database が作成済みかを確認してください。
+        </p>
+        <div class="mt-3 flex justify-center gap-2">
+          <button data-loading="reload" class="btn btn-secondary">再読み込み</button>
+          <button data-loading="logout" class="btn btn-secondary">ログアウト</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1127,11 +1136,23 @@
     const getFlag = (k) => { try { return localStorage.getItem(k) === '1'; } catch { return false; } };
     const setFlag = (k) => { try { localStorage.setItem(k, '1'); } catch { /* noop */ } };
 
+    let loadingTimer = null;
     function showLoading(on) {
       const el = $('#loadingOverlay');
       el.classList.toggle('hidden', !on);
       el.classList.toggle('grid', on);
+      clearTimeout(loadingTimer);
+      $('#loadingHelp').classList.add('hidden');
+      // 長く応答がない場合は案内と逃げ道を表示
+      if (on) loadingTimer = setTimeout(() => $('#loadingHelp').classList.remove('hidden'), 12000);
     }
+    $('#loadingOverlay').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-loading]');
+      if (!btn) return;
+      if (btn.dataset.loading === 'reload') { location.reload(); return; }
+      try { if (cloud.A && cloud.auth) await cloud.A.signOut(cloud.auth); else stopCloud(); }
+      catch { stopCloud(); }
+    });
 
     // 入力中に画面を描き直すとフォーカスが外れるため、入力が終わるまで待つ
     function requestRender() {
