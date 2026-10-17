@@ -2316,6 +2316,8 @@
 
     // Enterで次の入力欄へ
     entryList.addEventListener('keydown', (e) => {
+      // 日本語入力の変換確定のEnterでは何もしない（確定前に外すと文字が二重になる）
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && e.target.matches('input[data-memo]')) { e.preventDefault(); e.target.blur(); return; }
       if (e.key !== 'Enter' || !e.target.matches('input[data-field]')) return;
       e.preventDefault();
