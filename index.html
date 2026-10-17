@@ -1,0 +1,1735 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#020617">
+  <title>LiftLog - 筋トレ重量メモ＆体重記録</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '"Noto Sans JP"', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Lucide Icons (CDN) -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+  <style type="text/tailwindcss">
+    .card {
+      @apply rounded-2xl border border-white/10 bg-slate-900/70 shadow-xl shadow-black/30 backdrop-blur;
+    }
+    .input {
+      @apply rounded-xl border border-white/10 bg-slate-800/80 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50;
+    }
+    .btn {
+      @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition active:scale-[.98] disabled:pointer-events-none disabled:opacity-40;
+    }
+    .btn-primary {
+      @apply bg-violet-600 text-white shadow-lg shadow-violet-600/25 hover:bg-violet-500;
+    }
+    .btn-secondary {
+      @apply border border-white/10 bg-slate-800 text-slate-200 hover:bg-slate-700;
+    }
+    .btn-ghost {
+      @apply text-slate-300 hover:bg-white/5 hover:text-white;
+    }
+    .btn-danger {
+      @apply border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20;
+    }
+    .icon-btn {
+      @apply inline-grid place-items-center rounded-xl p-2 text-slate-300 transition hover:bg-white/5 hover:text-white active:scale-95;
+    }
+    .tab-btn {
+      @apply flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-400 transition hover:text-slate-200;
+    }
+    .tab-btn.active {
+      @apply bg-violet-600 text-white shadow-lg shadow-violet-600/25;
+    }
+  </style>
+
+  <style>
+    body { -webkit-tap-highlight-color: transparent; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+    input[type="date"], select { color-scheme: dark; }
+    .btn svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+    .icon-btn svg { width: 1.125rem; height: 1.125rem; }
+    .tab-btn svg { width: 1.125rem; height: 1.125rem; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    @keyframes pop { 0% { transform: scale(.96); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    .anim-pop { animation: pop .18s ease-out; }
+  </style>
+</head>
+
+<body class="min-h-screen bg-slate-950 font-sans text-slate-100 antialiased">
+  <!-- 背景グロー -->
+  <div class="pointer-events-none fixed inset-x-0 top-0 -z-0 h-72 bg-gradient-to-b from-violet-700/15 via-violet-900/5 to-transparent"></div>
+
+  <!-- ヘッダー -->
+  <header class="sticky top-0 z-30 border-b border-white/5 bg-slate-950/80 backdrop-blur-lg">
+    <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+      <div class="flex items-center gap-2.5">
+        <div class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-lg shadow-violet-600/30">
+          <i data-lucide="dumbbell" class="h-5 w-5 text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-extrabold leading-tight tracking-tight">LiftLog</h1>
+          <p class="text-[11px] leading-tight text-slate-400">筋トレ重量メモ＆体重記録</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <div id="authArea" class="flex items-center gap-1.5"></div>
+        <button id="btnExport" class="btn btn-ghost" title="JSON形式でデータを書き出し">
+          <i data-lucide="download"></i><span class="hidden sm:inline">エクスポート</span>
+        </button>
+        <button id="btnImport" class="btn btn-ghost" title="JSONファイルからデータを読み込み">
+          <i data-lucide="upload"></i><span class="hidden sm:inline">インポート</span>
+        </button>
+        <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+      </div>
+    </div>
+  </header>
+
+  <main class="relative mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:gap-6 lg:py-6">
+    <!-- サイドバー：日付・カレンダー -->
+    <aside class="space-y-4 lg:sticky lg:top-[76px] lg:self-start">
+      <section class="card p-4">
+        <div class="flex items-center justify-between gap-2">
+          <button id="prevDay" class="icon-btn" title="前の日"><i data-lucide="chevron-left"></i></button>
+          <div class="min-w-0 text-center">
+            <div id="dateLabel" class="truncate text-lg font-extrabold tracking-tight"></div>
+            <div id="dateRel" class="mt-0.5 text-xs font-semibold"></div>
+          </div>
+          <button id="nextDay" class="icon-btn" title="次の日"><i data-lucide="chevron-right"></i></button>
+        </div>
+        <div class="mt-3 flex gap-2">
+          <input type="date" id="datePicker" class="input min-w-0 flex-1 text-sm">
+          <button id="btnToday" class="btn btn-secondary">今日</button>
+          <button id="btnCal" class="icon-btn border border-white/10 bg-slate-800 lg:hidden" title="カレンダーを表示">
+            <i data-lucide="calendar-days"></i>
+          </button>
+        </div>
+        <div id="calendarWrap" class="mt-4 hidden lg:block">
+          <div id="calendar"></div>
+        </div>
+      </section>
+
+      <section class="card hidden p-4 lg:block">
+        <h2 class="flex items-center gap-2 text-sm font-bold text-slate-300">
+          <i data-lucide="database" class="h-4 w-4"></i>データ
+        </h2>
+        <dl id="dataStats" class="mt-3 grid grid-cols-3 gap-2 text-center"></dl>
+        <p data-role="storage-note" class="mt-3 text-[11px] leading-relaxed text-slate-500"></p>
+      </section>
+    </aside>
+
+    <!-- メインコンテンツ -->
+    <section class="min-w-0 space-y-4">
+      <!-- タブ -->
+      <div class="card flex gap-1 p-1.5" role="tablist">
+        <button class="tab-btn" data-tab="workout" role="tab"><i data-lucide="dumbbell"></i>筋トレ</button>
+        <button class="tab-btn" data-tab="weight" role="tab"><i data-lucide="scale"></i>体重</button>
+      </div>
+
+      <!-- 筋トレタブ -->
+      <div id="tabWorkout" class="space-y-4">
+        <section class="card p-4">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 class="flex items-center gap-2 font-bold">
+              <i data-lucide="list-plus" class="h-5 w-5 text-violet-400"></i>種目を選んで記録
+            </h2>
+            <span id="daySummary" class="text-xs font-medium text-slate-400"></span>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <select id="exerciseSelect" class="input min-w-0 flex-1"></select>
+            <div class="flex gap-2">
+              <button id="btnAddEntry" class="btn btn-primary flex-1 sm:flex-none"><i data-lucide="plus"></i>記録に追加</button>
+              <button id="btnManageEx" class="btn btn-secondary flex-1 sm:flex-none"><i data-lucide="settings-2"></i>種目を追加</button>
+            </div>
+          </div>
+          <div id="selectPreview" class="mt-3"></div>
+        </section>
+
+        <div id="entryList" class="space-y-4"></div>
+      </div>
+
+      <!-- 体重タブ -->
+      <div id="tabWeight" class="hidden space-y-4">
+        <section class="card p-4 sm:p-5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="flex items-center gap-2 font-bold">
+              <i data-lucide="scale" class="h-5 w-5 text-sky-400"></i><span id="wDateLabel"></span>
+            </h2>
+            <span id="weightStatus"></span>
+          </div>
+          <form id="weightForm" class="mt-4 flex items-end gap-2" autocomplete="off">
+            <label class="min-w-0 flex-1">
+              <span class="text-xs font-semibold text-slate-400">体重 (kg・小数点第2位まで)</span>
+              <div class="relative mt-1">
+                <input id="weightInput" type="number" inputmode="decimal" step="0.01" min="0" max="500"
+                  class="input w-full py-3 pr-12 text-2xl font-extrabold tabular-nums" placeholder="0.00">
+                <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-semibold text-slate-400">kg</span>
+              </div>
+            </label>
+            <button type="submit" class="btn btn-primary h-[58px] px-5"><i data-lucide="save"></i>保存</button>
+          </form>
+          <div id="weightDiff" class="mt-4"></div>
+          <div class="mt-3 flex justify-end">
+            <button id="btnDeleteWeight" class="btn btn-danger hidden"><i data-lucide="trash-2"></i>この日の体重を削除</button>
+          </div>
+        </section>
+
+        <section class="card p-4 sm:p-5">
+          <div class="mb-3 flex items-center justify-between">
+            <h3 class="flex items-center gap-2 font-bold"><i data-lucide="history" class="h-5 w-5 text-slate-400"></i>最近の記録</h3>
+            <span id="weightCount" class="text-xs text-slate-500"></span>
+          </div>
+          <div id="weightHistory"></div>
+        </section>
+      </div>
+
+      <p data-role="storage-note" class="px-1 pb-6 text-center text-[11px] text-slate-600 lg:hidden"></p>
+    </section>
+  </main>
+
+  <!-- 種目管理モーダル -->
+  <div id="exModal" class="fixed inset-0 z-50 hidden items-end justify-center sm:items-center sm:p-4">
+    <div data-close class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+    <div class="card anim-pop relative flex max-h-[85vh] w-full max-w-md flex-col rounded-b-none bg-slate-900 sm:rounded-2xl">
+      <div class="flex items-center justify-between border-b border-white/5 px-4 py-3">
+        <h2 class="flex items-center gap-2 font-bold"><i data-lucide="settings-2" class="h-5 w-5 text-violet-400"></i>種目の管理</h2>
+        <button data-close class="icon-btn" title="閉じる"><i data-lucide="x"></i></button>
+      </div>
+      <form id="exAddForm" class="flex gap-2 p-4" autocomplete="off">
+        <input id="exNameInput" class="input min-w-0 flex-1" maxlength="40" placeholder="例：ダンベルベンチプレス">
+        <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i>追加</button>
+      </form>
+      <ul id="exList" class="space-y-2 overflow-y-auto px-4 pb-4"></ul>
+    </div>
+  </div>
+
+  <!-- クラウド読み込み中 -->
+  <div id="loadingOverlay" class="fixed inset-0 z-[70] hidden place-items-center bg-slate-950/90 backdrop-blur">
+    <div class="flex flex-col items-center gap-3 text-slate-300">
+      <div class="h-10 w-10 animate-spin rounded-full border-4 border-violet-500/30 border-t-violet-500"></div>
+      <p class="text-sm font-semibold">クラウドから読み込み中…</p>
+    </div>
+  </div>
+
+  <!-- トースト -->
+  <div id="toastWrap" class="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4"></div>
+
+  <script type="module">
+    /* =========================================================
+     * ▼▼▼ Firebase 設定 ▼▼▼
+     * Firebaseコンソール →「プロジェクトの設定」→「マイアプリ」の
+     * firebaseConfig の値をここに貼り付けてください。
+     * apiKey が空のままなら、この端末だけに保存する「ローカルモード」で動作します。
+     * ※ これらの値は公開されても問題ない設定値です（データはFirestoreのルールで保護されます）。
+     * ========================================================= */
+    const FIREBASE_CONFIG = {
+      apiKey: '',
+      authDomain: '',
+      projectId: '',
+      storageBucket: '',
+      messagingSenderId: '',
+      appId: '',
+    };
+    /* ▲▲▲ Firebase 設定ここまで ▲▲▲ */
+
+  (() => {
+    'use strict';
+
+    /* =========================================================
+     * 定数・ユーティリティ
+     * ========================================================= */
+    const STORAGE_KEY = 'liftlog.data.v1';
+    const UI_KEY = 'liftlog.ui.v1';
+    const MODE_KEY = 'liftlog.lastMode';
+    const FIREBASE_VERSION = '12.6.0';
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const WD = ['日', '月', '火', '水', '木', '金', '土'];
+    const DEFAULT_EXERCISES = ['ベンチプレス', 'スクワット', 'デッドリフト', 'ショルダープレス', 'ラットプルダウン', 'ダンベルカール'];
+    const SET_GRID = 'grid grid-cols-[1.75rem_minmax(0,1fr)_minmax(0,1fr)_4.25rem_2rem] sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_5rem_2.25rem] items-center gap-1.5 sm:gap-2';
+
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+    const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const pad = (n) => String(n).padStart(2, '0');
+    const toDateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+    const todayStr = () => toDateStr(new Date());
+    const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); return toDateStr(d); };
+    const daysBetween = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 86400000);
+    const r2 = (n) => Math.round(n * 100) / 100;
+
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    const num = (v) => {
+      if (v === '' || v === null || v === undefined) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const fmtNum = (n) => (n === null || n === undefined) ? '' : String(r2(n));
+    const fmtVol = (n) => Math.round(n).toLocaleString('ja-JP');
+
+    const fmtDateJP = (s) => {
+      const d = parseDate(s);
+      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${WD[d.getDay()]})`;
+    };
+    const fmtShort = (s) => {
+      const d = parseDate(s);
+      const sameYear = d.getFullYear() === new Date().getFullYear();
+      return `${sameYear ? '' : d.getFullYear() + '/'}${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
+    };
+    const relLabel = (s) => {
+      const n = daysBetween(s, todayStr());
+      if (n === 0) return '今日';
+      if (n === 1) return '昨日';
+      if (n === -1) return '明日';
+      return n > 0 ? `${n}日前` : `${-n}日後`;
+    };
+    const relFrom = (from, to) => {
+      const n = daysBetween(from, to);
+      return n === 0 ? '同日' : `${n}日前`;
+    };
+
+    const icons = () => { if (window.lucide) window.lucide.createIcons(); };
+
+    /* =========================================================
+     * データ（localStorage）
+     * ========================================================= */
+    function defaultData() {
+      return {
+        version: 1,
+        exercises: DEFAULT_EXERCISES.map((name) => ({ id: uid(), name })),
+        workouts: {},   // { 'YYYY-MM-DD': [ { id, exerciseId, sets: [ { weight, reps } ] } ] }
+        bodyweight: {}, // { 'YYYY-MM-DD': 72.35 }
+      };
+    }
+
+    const emptyData = () => ({ version: 1, exercises: [], workouts: {}, bodyweight: {} });
+
+    function normExercises(arr) {
+      const out = [];
+      const seen = new Set();
+      if (!Array.isArray(arr)) return out;
+      for (const e of arr) {
+        if (!e || e.id === undefined || typeof e.name !== 'string' || !e.name.trim()) continue;
+        const id = String(e.id);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push({ id, name: e.name.trim().slice(0, 40) });
+      }
+      return out;
+    }
+
+    function normEntries(entries) {
+      const list = [];
+      if (!Array.isArray(entries)) return list;
+      for (const en of entries) {
+        if (!en || en.exerciseId === undefined) continue;
+        const exerciseId = String(en.exerciseId);
+        if (list.some((x) => x.exerciseId === exerciseId)) continue;
+        const sets = Array.isArray(en.sets)
+          ? en.sets.map((s) => ({ weight: num(s && s.weight), reps: num(s && s.reps) }))
+          : [];
+        list.push({ id: en.id ? String(en.id) : uid(), exerciseId, sets });
+      }
+      return list;
+    }
+
+    const normBodyweight = (v) => { const n = num(v); return n !== null && n > 0 ? r2(n) : null; };
+
+    // 読み込んだデータを検証・正規化する（不正なら例外）
+    function normalize(d) {
+      if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('invalid root');
+      if (!Array.isArray(d.exercises) && typeof d.workouts !== 'object' && typeof d.bodyweight !== 'object') {
+        throw new Error('no known keys');
+      }
+      const out = emptyData();
+      out.exercises = normExercises(d.exercises);
+      const seen = new Set(out.exercises.map((e) => e.id));
+
+      if (d.workouts && typeof d.workouts === 'object') {
+        for (const [date, entries] of Object.entries(d.workouts)) {
+          if (!DATE_RE.test(date)) continue;
+          const list = normEntries(entries);
+          for (const en of list) {
+            // 種目マスタに存在しないIDは「不明な種目」として補完
+            if (!seen.has(en.exerciseId)) {
+              seen.add(en.exerciseId);
+              out.exercises.push({ id: en.exerciseId, name: '不明な種目' });
+            }
+          }
+          if (list.length) out.workouts[date] = list;
+        }
+      }
+
+      if (d.bodyweight && typeof d.bodyweight === 'object') {
+        for (const [date, v] of Object.entries(d.bodyweight)) {
+          const n = normBodyweight(v);
+          if (DATE_RE.test(date) && n !== null) out.bodyweight[date] = n;
+        }
+      }
+      return out;
+    }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return normalize(JSON.parse(raw));
+      } catch (e) {
+        console.warn('データの読み込みに失敗しました', e);
+      }
+      return defaultData();
+    }
+
+    function save() {
+      // 空になった日付を掃除
+      for (const [d, list] of Object.entries(state.workouts)) {
+        if (!list.length) delete state.workouts[d];
+      }
+      if (mode === 'cloud') { scheduleFlush(); return; }
+      if (mode !== 'local') return;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {
+        toast('保存に失敗しました（ストレージ容量またはプライベートモードの制限）', 'error');
+      }
+    }
+
+    function loadUI() {
+      try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch { return {}; }
+    }
+    function saveUI() {
+      try { localStorage.setItem(UI_KEY, JSON.stringify({ tab: ui.tab })); } catch { /* noop */ }
+    }
+
+    const CLOUD_ENABLED = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
+    const lastMode = (() => { try { return localStorage.getItem(MODE_KEY); } catch { return null; } })();
+
+    // 'local' = この端末のみ / 'cloud' = Firebase同期 / 'pending' = ログイン状態の確認中
+    let mode = CLOUD_ENABLED && lastMode === 'cloud' ? 'pending' : 'local';
+    let state = mode === 'local' ? load() : emptyData();
+    const savedUI = loadUI();
+    const ui = {
+      date: todayStr(),
+      tab: savedUI.tab === 'weight' ? 'weight' : 'workout',
+      calYear: new Date().getFullYear(),
+      calMonth: new Date().getMonth(),
+      calOpen: false,
+      selectedExerciseId: '',
+    };
+
+    /* =========================================================
+     * ドメインロジック
+     * ========================================================= */
+    const getExercise = (id) => state.exercises.find((e) => e.id === id);
+    const dayEntries = (date = ui.date) => state.workouts[date] || [];
+    const getEntry = (id) => dayEntries().find((e) => e.id === id);
+
+    // 有効なセット = 重量と回数が入力済み（回数 > 0）
+    const validSets = (sets) => sets.filter((s) => s.weight !== null && s.reps !== null && s.weight >= 0 && s.reps > 0);
+
+    function summarize(sets) {
+      if (!sets.length) return null;
+      let best = null;
+      for (const s of sets) {
+        if (!best || s.weight > best.weight || (s.weight === best.weight && s.reps > best.reps)) best = s;
+      }
+      return {
+        maxWeight: best.weight,
+        repsAtMax: best.reps,
+        volume: sets.reduce((a, s) => a + s.weight * s.reps, 0),
+        setCount: sets.length,
+      };
+    }
+
+    // 指定日付より前で最後に記録された実績
+    function findPrevious(exerciseId, beforeDate) {
+      const dates = Object.keys(state.workouts).filter((d) => d < beforeDate).sort().reverse();
+      for (const d of dates) {
+        const en = state.workouts[d].find((e) => e.exerciseId === exerciseId);
+        if (!en) continue;
+        const sets = validSets(en.sets);
+        if (sets.length) return { date: d, sets, summary: summarize(sets) };
+      }
+      return null;
+    }
+
+    // 重量優先 → 同重量なら回数で比較
+    function compareVals(w1, rp1, w2, rp2) {
+      const a = Math.round(w1 * 100), b = Math.round(w2 * 100);
+      if (a > b) return 'up';
+      if (a < b) return 'down';
+      if (rp1 > rp2) return 'up';
+      if (rp1 < rp2) return 'down';
+      return 'keep';
+    }
+
+    const hasWorkout = (date) => dayEntries(date).some((en) => validSets(en.sets).length > 0);
+
+    function prevBodyweight(before) {
+      const ds = Object.keys(state.bodyweight).filter((d) => d < before).sort();
+      const d = ds[ds.length - 1];
+      return d ? { date: d, value: state.bodyweight[d] } : null;
+    }
+
+    /* =========================================================
+     * 表示パーツ
+     * ========================================================= */
+    const TREND = {
+      up:    { label: '↑ UP',   cls: 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/40' },
+      keep:  { label: '→ KEEP', cls: 'bg-amber-500/15 text-amber-300 ring-amber-400/40' },
+      down:  { label: '↓ DOWN', cls: 'bg-rose-500/15 text-rose-300 ring-rose-400/40' },
+      new:   { label: '★ NEW',  cls: 'bg-violet-500/15 text-violet-300 ring-violet-400/40' },
+      first: { label: '★ 初回', cls: 'bg-violet-500/15 text-violet-300 ring-violet-400/40' },
+      none:  { label: '—',      cls: 'bg-slate-800/80 text-slate-500 ring-white/5' },
+    };
+
+    function badge(trend, big = false) {
+      const t = TREND[trend] || TREND.none;
+      const size = big ? 'px-3 py-1.5 text-sm' : 'px-2 py-0.5 text-[11px]';
+      return `<span class="inline-flex items-center justify-center whitespace-nowrap rounded-full font-extrabold tracking-wide ring-1 ${size} ${t.cls}">${t.label}</span>`;
+    }
+
+    const weightRepsHTML = (w, r, cls = '') =>
+      `<span class="tabular-nums ${cls}">${fmtNum(w)}<span class="text-xs font-semibold text-slate-400">kg</span> × ${r}<span class="text-xs font-semibold text-slate-400">回</span></span>`;
+
+    /* =========================================================
+     * 日付・カレンダー
+     * ========================================================= */
+    function setDate(d) {
+      if (!DATE_RE.test(d)) return;
+      ui.date = d;
+      const dt = parseDate(d);
+      ui.calYear = dt.getFullYear();
+      ui.calMonth = dt.getMonth();
+      renderAll();
+    }
+
+    function renderDateBar() {
+      $('#dateLabel').textContent = fmtDateJP(ui.date);
+      const rel = relLabel(ui.date);
+      const relEl = $('#dateRel');
+      relEl.textContent = rel;
+      relEl.className = 'mt-0.5 text-xs font-semibold ' + (rel === '今日' ? 'text-violet-300' : 'text-slate-400');
+      $('#datePicker').value = ui.date;
+      $('#btnToday').disabled = ui.date === todayStr();
+    }
+
+    function renderCalendar() {
+      const y = ui.calYear, m = ui.calMonth;
+      const startDay = new Date(y, m, 1).getDay();
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const today = todayStr();
+
+      let cells = '';
+      for (let i = 0; i < startDay; i++) cells += '<div></div>';
+      for (let day = 1; day <= daysInMonth; day++) {
+        const ds = `${y}-${pad(m + 1)}-${pad(day)}`;
+        const dow = (startDay + day - 1) % 7;
+        const selected = ds === ui.date;
+        const isToday = ds === today;
+        const w = hasWorkout(ds);
+        const b = state.bodyweight[ds] !== undefined;
+        let color = dow === 0 ? 'text-rose-300' : dow === 6 ? 'text-sky-300' : 'text-slate-200';
+        let bg = 'hover:bg-white/5';
+        if (selected) { color = 'text-white'; bg = 'bg-violet-600 shadow-lg shadow-violet-600/30'; }
+        const ring = isToday && !selected ? 'ring-1 ring-violet-400/70' : '';
+        cells += `
+          <button data-date="${ds}" class="relative flex aspect-square flex-col items-center justify-center rounded-xl text-sm font-semibold transition ${color} ${bg} ${ring}">
+            <span class="tabular-nums">${day}</span>
+            <span class="mt-0.5 flex h-1.5 gap-0.5">
+              ${w ? `<span class="h-1.5 w-1.5 rounded-full ${selected ? 'bg-white' : 'bg-orange-400'}"></span>` : ''}
+              ${b ? `<span class="h-1.5 w-1.5 rounded-full ${selected ? 'bg-sky-200' : 'bg-sky-400'}"></span>` : ''}
+            </span>
+          </button>`;
+      }
+
+      $('#calendar').innerHTML = `
+        <div class="mb-2 flex items-center justify-between">
+          <button data-cal="prev" class="icon-btn" title="前の月"><i data-lucide="chevron-left"></i></button>
+          <div class="text-sm font-bold">${y}年 ${m + 1}月</div>
+          <button data-cal="next" class="icon-btn" title="次の月"><i data-lucide="chevron-right"></i></button>
+        </div>
+        <div class="grid grid-cols-7 gap-1 pb-1 text-center text-[11px] font-bold">
+          ${WD.map((w, i) => `<div class="${i === 0 ? 'text-rose-400/80' : i === 6 ? 'text-sky-400/80' : 'text-slate-500'}">${w}</div>`).join('')}
+        </div>
+        <div class="grid grid-cols-7 gap-1">${cells}</div>
+        <div class="mt-3 flex items-center justify-center gap-4 text-[11px] text-slate-400">
+          <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-orange-400"></span>筋トレ</span>
+          <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-sky-400"></span>体重</span>
+        </div>`;
+    }
+
+    function renderCalToggle() {
+      const wrap = $('#calendarWrap');
+      wrap.classList.toggle('hidden', !ui.calOpen);
+      $('#btnCal').classList.toggle('text-violet-300', ui.calOpen);
+    }
+
+    function renderStats() {
+      const workoutDays = Object.keys(state.workouts).filter(hasWorkout).length;
+      const items = [
+        ['種目', state.exercises.length],
+        ['筋トレ日', workoutDays],
+        ['体重', Object.keys(state.bodyweight).length],
+      ];
+      $('#dataStats').innerHTML = items.map(([k, v]) => `
+        <div class="rounded-xl bg-slate-800/60 px-2 py-2">
+          <dt class="text-[10px] font-semibold text-slate-500">${k}</dt>
+          <dd class="text-lg font-extrabold tabular-nums">${v}</dd>
+        </div>`).join('');
+    }
+
+    /* =========================================================
+     * タブ
+     * ========================================================= */
+    function renderTabs() {
+      $$('.tab-btn').forEach((b) => {
+        const active = b.dataset.tab === ui.tab;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-selected', String(active));
+      });
+      $('#tabWorkout').classList.toggle('hidden', ui.tab !== 'workout');
+      $('#tabWeight').classList.toggle('hidden', ui.tab !== 'weight');
+    }
+
+    /* =========================================================
+     * 筋トレ
+     * ========================================================= */
+    function renderExerciseSelect() {
+      const sel = $('#exerciseSelect');
+      if (!state.exercises.length) {
+        sel.innerHTML = '<option value="">種目がありません（「種目を追加」から登録）</option>';
+        sel.disabled = true;
+        ui.selectedExerciseId = '';
+        $('#btnAddEntry').disabled = true;
+        return;
+      }
+      sel.disabled = false;
+      if (ui.selectedExerciseId && !getExercise(ui.selectedExerciseId)) ui.selectedExerciseId = '';
+      const inDay = new Set(dayEntries().map((e) => e.exerciseId));
+      sel.innerHTML = '<option value="">種目を選択してください</option>' + state.exercises.map((ex) =>
+        `<option value="${esc(ex.id)}" ${ex.id === ui.selectedExerciseId ? 'selected' : ''}>${esc(ex.name)}${inDay.has(ex.id) ? '（記録中）' : ''}</option>`
+      ).join('');
+      const already = inDay.has(ui.selectedExerciseId);
+      const btn = $('#btnAddEntry');
+      btn.disabled = !ui.selectedExerciseId;
+      btn.innerHTML = already
+        ? '<i data-lucide="arrow-down-to-line"></i>記録へ移動'
+        : '<i data-lucide="plus"></i>記録に追加';
+    }
+
+    function renderSelectPreview() {
+      const box = $('#selectPreview');
+      const id = ui.selectedExerciseId;
+      if (!id) {
+        box.innerHTML = `<p class="flex items-center gap-1.5 text-xs text-slate-500"><i data-lucide="info" class="h-3.5 w-3.5"></i>種目を選ぶと、この日より前の「前回の実績」が表示されます</p>`;
+        return;
+      }
+      const prev = findPrevious(id, ui.date);
+      if (!prev) {
+        box.innerHTML = `
+          <div class="flex items-center gap-2 rounded-xl bg-slate-800/60 px-3 py-2 text-sm text-slate-300 ring-1 ring-white/5">
+            <i data-lucide="sparkles" class="h-4 w-4 text-violet-300"></i>前回の記録はありません（今回が初記録です）
+          </div>`;
+        return;
+      }
+      box.innerHTML = `
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-violet-500/10 px-3 py-2 text-sm ring-1 ring-violet-400/20">
+          <span class="flex items-center gap-1.5 font-semibold text-violet-300"><i data-lucide="history" class="h-4 w-4"></i>前回 ${fmtShort(prev.date)}・${relFrom(prev.date, ui.date)}</span>
+          <span>最大 <b>${weightRepsHTML(prev.summary.maxWeight, prev.summary.repsAtMax)}</b></span>
+          <span class="text-slate-400">${prev.summary.setCount}セット / ${fmtVol(prev.summary.volume)}kg</span>
+        </div>`;
+    }
+
+    function prevPanelHTML(prev) {
+      const prevSide = prev
+        ? `<div class="text-[11px] font-semibold text-slate-500">前回 最大</div>
+           <div class="text-lg font-extrabold">${weightRepsHTML(prev.summary.maxWeight, prev.summary.repsAtMax)}</div>`
+        : `<div class="text-[11px] font-semibold text-slate-500">前回</div>
+           <div class="text-sm font-semibold text-slate-400">記録なし</div>`;
+      const chips = prev
+        ? `<div class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-2">
+             <span class="flex items-center gap-1 text-[11px] font-semibold text-slate-500"><i data-lucide="history" class="h-3.5 w-3.5"></i>${fmtShort(prev.date)}・${relFrom(prev.date, ui.date)}</span>
+             ${prev.sets.map((s, i) => `<span class="rounded-md bg-slate-900/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-300 ring-1 ring-white/5">${i + 1}: ${fmtNum(s.weight)}×${s.reps}</span>`).join('')}
+           </div>`
+        : '';
+      return `
+        <div class="rounded-xl bg-slate-800/50 p-3 ring-1 ring-white/5">
+          <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+            <div class="min-w-0">${prevSide}</div>
+            <div data-role="overall" class="flex justify-center"></div>
+            <div class="min-w-0 text-right">
+              <div class="text-[11px] font-semibold text-slate-500">今回 最大</div>
+              <div data-role="cur-max" class="text-lg font-extrabold">—</div>
+            </div>
+          </div>
+          ${chips}
+        </div>`;
+    }
+
+    function setRowHTML(s, i, prev) {
+      const p = prev && prev.sets[i];
+      return `
+        <div class="${SET_GRID}" data-row="${i}">
+          <div class="grid h-10 place-items-center rounded-lg bg-slate-800 text-sm font-extrabold text-slate-300 tabular-nums">${i + 1}</div>
+          <input data-field="weight" data-index="${i}" type="number" inputmode="decimal" step="any" min="0"
+            class="input h-10 w-full px-2 text-center font-bold tabular-nums" value="${fmtNum(s.weight)}"
+            placeholder="${p ? fmtNum(p.weight) : 'kg'}" aria-label="第${i + 1}セット 重量(kg)">
+          <input data-field="reps" data-index="${i}" type="number" inputmode="numeric" step="1" min="0"
+            class="input h-10 w-full px-2 text-center font-bold tabular-nums" value="${s.reps ?? ''}"
+            placeholder="${p ? p.reps : '回'}" aria-label="第${i + 1}セット 回数">
+          <div data-role="set-badge" class="flex justify-center"></div>
+          <button data-action="delete-set" data-index="${i}" class="icon-btn h-10 w-full p-0 text-slate-500 hover:text-rose-400" title="このセットを削除">
+            <i data-lucide="x"></i>
+          </button>
+        </div>`;
+    }
+
+    function entryCardHTML(entry) {
+      const ex = getExercise(entry.exerciseId);
+      const prev = findPrevious(entry.exerciseId, ui.date);
+      const rows = entry.sets.length
+        ? entry.sets.map((s, i) => setRowHTML(s, i, prev)).join('')
+        : `<p class="rounded-xl border border-dashed border-white/10 py-4 text-center text-sm text-slate-500">セットがありません。「セット追加」で入力を始めましょう。</p>`;
+      return `
+        <article class="card anim-pop overflow-hidden" data-entry-id="${esc(entry.id)}">
+          <div class="flex items-center justify-between gap-3 border-b border-white/5 px-4 py-3">
+            <div class="flex min-w-0 items-center gap-2.5">
+              <div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-500/15 text-violet-300"><i data-lucide="dumbbell" class="h-4 w-4"></i></div>
+              <h3 class="truncate font-bold">${esc(ex ? ex.name : '不明な種目')}</h3>
+            </div>
+            <button data-action="delete-entry" class="icon-btn text-slate-500 hover:text-rose-400" title="この種目の記録を削除">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
+          <div class="px-4 pt-3">${prevPanelHTML(prev)}</div>
+          <div class="px-4 py-3">
+            ${entry.sets.length ? `
+            <div class="${SET_GRID} px-0.5 pb-1.5 text-[10px] font-bold tracking-wider text-slate-500 sm:text-[11px]">
+              <div class="text-center">SET</div><div class="text-center">重量 (kg)</div><div class="text-center">回数 (reps)</div><div class="text-center">前回比</div><div></div>
+            </div>` : ''}
+            <div data-role="sets" class="space-y-2">${rows}</div>
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <button data-action="add-set" class="btn btn-secondary"><i data-lucide="plus"></i>セット追加</button>
+              <div data-role="volume" class="text-right text-xs text-slate-400"></div>
+            </div>
+          </div>
+        </article>`;
+    }
+
+    // 入力中にフォーカスを失わないよう、インジケーター部分だけ更新する
+    function updateCardIndicators(card, entry) {
+      if (!card || !entry) return;
+      const prev = findPrevious(entry.exerciseId, ui.date);
+      const cur = summarize(validSets(entry.sets));
+
+      // 全体比較（最大重量 → 同重量なら回数）
+      let overall = 'none';
+      if (cur) overall = prev ? compareVals(cur.maxWeight, cur.repsAtMax, prev.summary.maxWeight, prev.summary.repsAtMax) : 'first';
+      $('[data-role="overall"]', card).innerHTML = badge(overall, true);
+      $('[data-role="cur-max"]', card).innerHTML = cur ? weightRepsHTML(cur.maxWeight, cur.repsAtMax) : '<span class="text-slate-500">—</span>';
+
+      // セットごとの比較（前回の同じセット番号と比較）
+      entry.sets.forEach((s, i) => {
+        const cell = $(`[data-row="${i}"] [data-role="set-badge"]`, card);
+        if (!cell) return;
+        const valid = s.weight !== null && s.reps !== null && s.weight >= 0 && s.reps > 0;
+        let t = 'none';
+        if (valid && prev) {
+          const p = prev.sets[i];
+          t = p ? compareVals(s.weight, s.reps, p.weight, p.reps) : 'new';
+        }
+        cell.innerHTML = badge(t);
+      });
+
+      // ボリューム
+      const vol = $('[data-role="volume"]', card);
+      if (cur) {
+        let diffHTML = '';
+        if (prev) {
+          const d = Math.round(cur.volume - prev.summary.volume);
+          const c = d > 0 ? 'text-emerald-400' : d < 0 ? 'text-rose-400' : 'text-amber-400';
+          diffHTML = ` <span class="${c} font-semibold">(${d > 0 ? '+' : ''}${d.toLocaleString('ja-JP')})</span>`;
+        }
+        vol.innerHTML = `${cur.setCount}セット・総ボリューム <b class="text-slate-200 tabular-nums">${fmtVol(cur.volume)}kg</b>${diffHTML}`;
+      } else {
+        vol.textContent = '重量と回数を入力してください';
+      }
+    }
+
+    function renderDaySummary() {
+      const entries = dayEntries();
+      let exCount = 0, setCount = 0, volume = 0;
+      for (const en of entries) {
+        const vs = validSets(en.sets);
+        if (vs.length) exCount++;
+        setCount += vs.length;
+        volume += vs.reduce((a, s) => a + s.weight * s.reps, 0);
+      }
+      $('#daySummary').innerHTML = exCount
+        ? `${exCount}種目・${setCount}セット・総ボリューム <b class="text-slate-200 tabular-nums">${fmtVol(volume)}kg</b>`
+        : '';
+    }
+
+    function renderWorkout() {
+      renderExerciseSelect();
+      renderSelectPreview();
+      const entries = dayEntries();
+      const list = $('#entryList');
+      if (!entries.length) {
+        list.innerHTML = `
+          <div class="card flex flex-col items-center gap-3 px-6 py-12 text-center">
+            <div class="grid h-14 w-14 place-items-center rounded-2xl bg-slate-800 text-slate-500"><i data-lucide="clipboard-list" class="h-7 w-7"></i></div>
+            <div>
+              <p class="font-bold text-slate-300">${fmtShort(ui.date)} の記録はまだありません</p>
+              <p class="mt-1 text-sm text-slate-500">上のセレクトボックスで種目を選び「記録に追加」を押してください。</p>
+            </div>
+          </div>`;
+      } else {
+        list.innerHTML = entries.map(entryCardHTML).join('');
+        $$('[data-entry-id]', list).forEach((card) => updateCardIndicators(card, getEntry(card.dataset.entryId)));
+      }
+      renderDaySummary();
+      icons();
+    }
+
+    function rerenderCard(entryId) {
+      const card = $(`[data-entry-id="${CSS.escape(entryId)}"]`);
+      const entry = getEntry(entryId);
+      if (!card || !entry) { renderWorkout(); return; }
+      card.outerHTML = entryCardHTML(entry);
+      const fresh = $(`[data-entry-id="${CSS.escape(entryId)}"]`);
+      fresh.classList.remove('anim-pop');
+      updateCardIndicators(fresh, entry);
+      renderDaySummary();
+      icons();
+      return fresh;
+    }
+
+    function addEntry(exId) {
+      if (!exId) { toast('種目を選択してください', 'error'); return; }
+      const list = dayEntries();
+      const exist = list.find((e) => e.exerciseId === exId);
+      if (exist) { scrollToEntry(exist.id); return; }
+      const prev = findPrevious(exId, ui.date);
+      const entry = {
+        id: uid(),
+        exerciseId: exId,
+        sets: [{ weight: prev ? prev.sets[0].weight : null, reps: null }],
+      };
+      if (!state.workouts[ui.date]) state.workouts[ui.date] = [];
+      state.workouts[ui.date].push(entry);
+      save();
+      renderWorkout();
+      renderCalendar();
+      icons();
+      const card = scrollToEntry(entry.id);
+      const input = card && $(prev ? 'input[data-field="reps"]' : 'input[data-field="weight"]', card);
+      if (input) input.focus({ preventScroll: true });
+    }
+
+    function scrollToEntry(id) {
+      const card = $(`[data-entry-id="${CSS.escape(id)}"]`);
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('ring-2', 'ring-violet-500/60');
+        setTimeout(() => card.classList.remove('ring-2', 'ring-violet-500/60'), 1200);
+      }
+      return card;
+    }
+
+    /* =========================================================
+     * 体重
+     * ========================================================= */
+    function fmtDiff(d) {
+      const v = r2(d);
+      if (v === 0) return '±0.00kg';
+      return `${v > 0 ? '+' : '-'}${Math.abs(v).toFixed(2)}kg`;
+    }
+    const diffColor = (d) => (r2(d) > 0 ? 'text-orange-300' : r2(d) < 0 ? 'text-sky-300' : 'text-slate-300');
+
+    function renderWeight() {
+      $('#wDateLabel').textContent = `${fmtShort(ui.date)} の体重`;
+      const saved = state.bodyweight[ui.date];
+      $('#weightInput').value = saved !== undefined ? saved.toFixed(2) : '';
+      $('#btnDeleteWeight').classList.toggle('hidden', saved === undefined);
+      renderWeightDiff();
+      renderWeightHistory();
+      icons();
+    }
+
+    function renderWeightDiff() {
+      const saved = state.bodyweight[ui.date];
+      const raw = num($('#weightInput').value);
+      const v = raw !== null && raw > 0 ? r2(raw) : null;
+      const prev = prevBodyweight(ui.date);
+
+      // ステータス表示
+      const status = $('#weightStatus');
+      if (v !== null && saved !== undefined && v === saved) {
+        status.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-bold text-emerald-300 ring-1 ring-emerald-400/30">✓ 保存済み</span>`;
+      } else if (v !== null) {
+        status.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-300 ring-1 ring-amber-400/30">● 未保存</span>`;
+      } else {
+        status.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2.5 py-1 text-xs font-bold text-slate-400 ring-1 ring-white/5">未記録</span>`;
+      }
+
+      const box = $('#weightDiff');
+      if (!prev) {
+        box.innerHTML = `
+          <div class="rounded-xl bg-slate-800/50 px-4 py-3 text-sm text-slate-400 ring-1 ring-white/5">
+            この日より前の体重記録がないため、差分は表示されません。
+          </div>`;
+        return;
+      }
+      const diff = v !== null ? v - prev.value : null;
+      box.innerHTML = `
+        <div class="grid grid-cols-3 divide-x divide-white/5 rounded-xl bg-slate-800/50 ring-1 ring-white/5">
+          <div class="px-3 py-3">
+            <div class="text-[11px] font-semibold text-slate-500">前回 ${fmtShort(prev.date)}</div>
+            <div class="mt-0.5 text-lg font-extrabold tabular-nums">${prev.value.toFixed(2)}<span class="text-xs text-slate-400">kg</span></div>
+            <div class="text-[11px] text-slate-500">${relFrom(prev.date, ui.date)}</div>
+          </div>
+          <div class="px-3 py-3">
+            <div class="text-[11px] font-semibold text-slate-500">今回</div>
+            <div class="mt-0.5 text-lg font-extrabold tabular-nums">${v !== null ? v.toFixed(2) + '<span class="text-xs text-slate-400">kg</span>' : '<span class="text-slate-500">—</span>'}</div>
+          </div>
+          <div class="px-3 py-3">
+            <div class="text-[11px] font-semibold text-slate-500">前回との差</div>
+            <div class="mt-0.5 text-lg font-extrabold tabular-nums ${diff !== null ? diffColor(diff) : 'text-slate-500'}">${diff !== null ? fmtDiff(diff) : '—'}</div>
+          </div>
+        </div>`;
+    }
+
+    function renderWeightHistory() {
+      const asc = Object.keys(state.bodyweight).sort();
+      $('#weightCount').textContent = asc.length ? `全${asc.length}件` : '';
+      if (!asc.length) {
+        $('#weightHistory').innerHTML = `<p class="py-6 text-center text-sm text-slate-500">まだ体重の記録がありません</p>`;
+        return;
+      }
+      const rows = [];
+      for (let i = asc.length - 1; i >= 0 && rows.length < 30; i--) {
+        const d = asc[i];
+        const v = state.bodyweight[d];
+        const p = i > 0 ? state.bodyweight[asc[i - 1]] : null;
+        const diff = p !== null ? v - p : null;
+        const sel = d === ui.date;
+        rows.push(`
+          <button data-wdate="${d}" class="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${sel ? 'bg-violet-600/20 ring-1 ring-violet-500/40' : 'hover:bg-white/5'}">
+            <span class="text-sm font-semibold ${sel ? 'text-violet-200' : 'text-slate-300'}">${fmtShort(d)}</span>
+            <span class="flex items-center gap-3">
+              <span class="w-20 text-right text-xs font-bold tabular-nums ${diff !== null ? diffColor(diff) : 'text-slate-600'}">${diff !== null ? fmtDiff(diff) : '—'}</span>
+              <span class="w-20 text-right font-extrabold tabular-nums">${v.toFixed(2)}<span class="text-xs font-semibold text-slate-400">kg</span></span>
+            </span>
+          </button>`);
+      }
+      $('#weightHistory').innerHTML = `<div class="space-y-1">${rows.join('')}</div>`;
+    }
+
+    /* =========================================================
+     * 種目管理モーダル
+     * ========================================================= */
+    function countRecords(exId) {
+      return Object.values(state.workouts).filter((list) => list.some((e) => e.exerciseId === exId)).length;
+    }
+
+    function renderExList() {
+      const ul = $('#exList');
+      if (!state.exercises.length) {
+        ul.innerHTML = `<li class="py-6 text-center text-sm text-slate-500">種目が登録されていません</li>`;
+        return;
+      }
+      ul.innerHTML = state.exercises.map((ex) => {
+        const c = countRecords(ex.id);
+        return `
+          <li class="flex items-center justify-between gap-2 rounded-xl bg-slate-800/60 px-3 py-2 ring-1 ring-white/5" data-ex-id="${esc(ex.id)}">
+            <div class="min-w-0">
+              <div class="truncate font-semibold">${esc(ex.name)}</div>
+              <div class="text-[11px] text-slate-500">${c ? `記録 ${c}日分` : '記録なし'}</div>
+            </div>
+            <div class="flex shrink-0 items-center">
+              <button data-ex-action="rename" class="icon-btn text-slate-400" title="名前を変更"><i data-lucide="pencil"></i></button>
+              <button data-ex-action="delete" class="icon-btn text-slate-400 hover:text-rose-400" title="削除"><i data-lucide="trash-2"></i></button>
+            </div>
+          </li>`;
+      }).join('');
+      icons();
+    }
+
+    function openExModal() {
+      const m = $('#exModal');
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+      renderExList();
+      setTimeout(() => $('#exNameInput').focus(), 50);
+    }
+    function closeExModal() {
+      const m = $('#exModal');
+      m.classList.add('hidden');
+      m.classList.remove('flex');
+    }
+    const isModalOpen = () => !$('#exModal').classList.contains('hidden');
+
+    function nameExists(name, exceptId) {
+      const n = name.trim().toLowerCase();
+      return state.exercises.some((e) => e.id !== exceptId && e.name.trim().toLowerCase() === n);
+    }
+
+    /* =========================================================
+     * エクスポート / インポート
+     * ========================================================= */
+    function exportData() {
+      const payload = { app: 'LiftLog', exportedAt: new Date().toISOString(), ...state };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `liftlog-backup-${todayStr()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('JSONファイルを書き出しました');
+    }
+
+    async function importData(file) {
+      try {
+        const text = await file.text();
+        const data = normalize(JSON.parse(text));
+        const msg = [
+          mode === 'cloud'
+            ? 'インポートすると、クラウド上の現在のデータはすべて上書きされます（他の端末にも反映されます）。'
+            : 'インポートすると、現在のデータはすべて上書きされます。',
+          '',
+          `種目: ${data.exercises.length}件`,
+          `筋トレ記録: ${Object.keys(data.workouts).length}日分`,
+          `体重記録: ${Object.keys(data.bodyweight).length}件`,
+          '',
+          'よろしいですか？',
+        ].join('\n');
+        if (!confirm(msg)) return;
+        state = data;
+        ui.selectedExerciseId = '';
+        save();
+        renderAll();
+        toast('データを読み込みました');
+      } catch (e) {
+        console.error(e);
+        toast('読み込みに失敗しました（不正なJSONファイルです）', 'error');
+      }
+    }
+
+    /* =========================================================
+     * トースト
+     * ========================================================= */
+    function toast(msg, type = 'ok') {
+      const el = document.createElement('div');
+      const style = type === 'error'
+        ? 'bg-rose-950/95 text-rose-100 ring-rose-500/40'
+        : 'bg-slate-800/95 text-slate-100 ring-white/10';
+      el.className = `pointer-events-auto flex max-w-sm translate-y-2 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold opacity-0 shadow-2xl ring-1 backdrop-blur transition duration-300 ${style}`;
+      el.innerHTML = `<i data-lucide="${type === 'error' ? 'circle-alert' : 'check'}" class="h-4 w-4 shrink-0"></i><span>${esc(msg)}</span>`;
+      $('#toastWrap').appendChild(el);
+      icons();
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('opacity-0', 'translate-y-2')));
+      setTimeout(() => {
+        el.classList.add('opacity-0');
+        setTimeout(() => el.remove(), 300);
+      }, 2400);
+    }
+
+    /* =========================================================
+     * 全体描画
+     * ========================================================= */
+    function renderAll() {
+      renderDateBar();
+      renderCalendar();
+      renderCalToggle();
+      renderTabs();
+      renderWorkout();
+      renderWeight();
+      renderStats();
+      renderAuth();
+      if (isModalOpen()) renderExList();
+      icons();
+    }
+
+    /* =========================================================
+     * クラウド同期（Firebase Authentication + Cloud Firestore）
+     *
+     * Firestore の構造:
+     *   users/{uid}                 … { exercises: [...] }
+     *   users/{uid}/days/{日付}      … { workouts: [...], bodyweight: number|null }
+     *
+     * 画面側は従来どおり state を書き換えて save() を呼ぶだけ。
+     * flush() が「最後に同期した内容」との差分を調べ、変わった日付のドキュメントだけを書き込む。
+     * ========================================================= */
+    const EMPTY_DAY_KEY = JSON.stringify({ workouts: [], bodyweight: null });
+    const cloud = {
+      A: null, F: null,          // firebase-auth / firebase-firestore モジュール
+      auth: null, db: null,
+      authResolved: false,
+      user: null,
+      unsubs: [],
+      synced: { exercises: null, days: new Map() }, // 最後にクラウドと一致していた内容（JSON文字列）
+      loaded: { meta: false, days: false },
+      server: { meta: false, days: false },
+      metaExists: false,
+      dayDocCount: 0,
+      initialized: false,
+      pending: 0,
+      timer: null,
+      error: '',
+    };
+    let pendingRender = false;
+
+    const dayPayload = (d) => ({
+      workouts: state.workouts[d] || [],
+      bodyweight: state.bodyweight[d] ?? null,
+    });
+    const dayKey = (d) => JSON.stringify(dayPayload(d));
+    const normDay = (data) => ({
+      workouts: normEntries(data && data.workouts),
+      bodyweight: normBodyweight(data && data.bodyweight),
+    });
+
+    function applyDay(d, payload) {
+      if (payload && payload.workouts.length) state.workouts[d] = payload.workouts;
+      else delete state.workouts[d];
+      if (payload && payload.bodyweight !== null) state.bodyweight[d] = payload.bodyweight;
+      else delete state.bodyweight[d];
+    }
+
+    function setLastMode(m) { try { localStorage.setItem(MODE_KEY, m); } catch { /* noop */ } }
+    const initFlagKey = (uid) => `liftlog.cloudInit.${uid}`;
+    const getFlag = (k) => { try { return localStorage.getItem(k) === '1'; } catch { return false; } };
+    const setFlag = (k) => { try { localStorage.setItem(k, '1'); } catch { /* noop */ } };
+
+    function showLoading(on) {
+      const el = $('#loadingOverlay');
+      el.classList.toggle('hidden', !on);
+      el.classList.toggle('grid', on);
+    }
+
+    // 入力中に画面を描き直すとフォーカスが外れるため、入力が終わるまで待つ
+    function requestRender() {
+      const a = document.activeElement;
+      if (a && a.matches('input, select, textarea')) { pendingRender = true; return; }
+      pendingRender = false;
+      renderAll();
+    }
+    document.addEventListener('focusout', () => setTimeout(() => {
+      if (!pendingRender) return;
+      const a = document.activeElement;
+      if (!(a && a.matches('input, select, textarea'))) { pendingRender = false; renderAll(); }
+    }, 0));
+
+    function authErrorMessage(e) {
+      const code = (e && e.code) || '';
+      if (code === 'auth/unauthorized-domain') return 'このURLはFirebaseの「承認済みドメイン」に登録されていません';
+      if (code === 'auth/operation-not-supported-in-this-environment') return 'ファイルを直接開いた状態ではログインできません。公開したURL（GitHub Pages など）から開いてください';
+      if (code === 'auth/network-request-failed') return 'ネットワークに接続できません';
+      if (code === 'permission-denied') return 'アクセスが拒否されました（Firestoreのルールを確認してください）';
+      return `エラーが発生しました（${code || (e && e.message) || '不明'}）`;
+    }
+
+    async function initCloud() {
+      if (!CLOUD_ENABLED) { renderAuth(); return; }
+      if (mode === 'pending') showLoading(true);
+      renderAuth();
+      try {
+        const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/`;
+        const [appM, authM, fsM] = await Promise.all([
+          import(base + 'firebase-app.js'),
+          import(base + 'firebase-auth.js'),
+          import(base + 'firebase-firestore.js'),
+        ]);
+        cloud.A = authM;
+        cloud.F = fsM;
+        const app = appM.initializeApp(FIREBASE_CONFIG);
+        cloud.auth = authM.getAuth(app);
+        try {
+          // オフラインでも記録でき、電波が戻ったら自動で送信される
+          cloud.db = fsM.initializeFirestore(app, {
+            localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }),
+          });
+        } catch (e) {
+          console.warn('永続キャッシュを使えないため通常モードで接続します', e);
+          cloud.db = fsM.getFirestore(app);
+        }
+        authM.getRedirectResult(cloud.auth).catch((e) => toast(authErrorMessage(e), 'error'));
+        authM.onAuthStateChanged(cloud.auth, (user) => {
+          cloud.authResolved = true;
+          if (user) startCloud(user);
+          else stopCloud();
+        });
+      } catch (e) {
+        console.error(e);
+        cloud.error = 'Firebaseを読み込めませんでした';
+        cloud.authResolved = true;
+        toast('クラウドに接続できないため、この端末のデータで表示しています', 'error');
+        stopCloud();
+      }
+    }
+
+    function unsubscribeAll() {
+      cloud.unsubs.forEach((fn) => { try { fn(); } catch { /* noop */ } });
+      cloud.unsubs = [];
+    }
+
+    function startCloud(user) {
+      unsubscribeAll();
+      cloud.user = user;
+      cloud.synced = { exercises: null, days: new Map() };
+      cloud.loaded = { meta: false, days: false };
+      cloud.server = { meta: false, days: false };
+      cloud.metaExists = false;
+      cloud.dayDocCount = 0;
+      cloud.initialized = false;
+      mode = 'cloud';
+      setLastMode('cloud');
+      state = emptyData();
+      ui.selectedExerciseId = '';
+      showLoading(true);
+      renderAll();
+
+      const { doc, collection, onSnapshot } = cloud.F;
+      const userRef = doc(cloud.db, 'users', user.uid);
+      const daysRef = collection(cloud.db, 'users', user.uid, 'days');
+      cloud.unsubs.push(onSnapshot(userRef, { includeMetadataChanges: true }, onMetaSnapshot, onCloudError));
+      cloud.unsubs.push(onSnapshot(daysRef, { includeMetadataChanges: true }, onDaysSnapshot, onCloudError));
+    }
+
+    function stopCloud() {
+      unsubscribeAll();
+      clearTimeout(cloud.timer);
+      cloud.user = null;
+      cloud.initialized = false;
+      mode = 'local';
+      setLastMode('local');
+      state = load();
+      ui.selectedExerciseId = '';
+      showLoading(false);
+      renderAll();
+    }
+
+    function onCloudError(e) {
+      console.error(e);
+      showLoading(false);
+      toast(authErrorMessage(e), 'error');
+    }
+
+    function onMetaSnapshot(snap) {
+      cloud.metaExists = snap.exists();
+      const remote = snap.exists() ? normExercises(snap.data().exercises) : [];
+      const remoteKey = JSON.stringify(remote);
+      const localKey = JSON.stringify(state.exercises);
+      const dirty = cloud.synced.exercises !== null && localKey !== cloud.synced.exercises;
+      let changed = false;
+      if (!dirty) {
+        if (remoteKey !== localKey) { state.exercises = remote; changed = true; }
+        cloud.synced.exercises = remoteKey;
+      } else if (remoteKey !== cloud.synced.exercises) {
+        // 両方で変更されていた場合は、IDで統合（同じIDはこの端末の内容を優先）
+        const ids = new Set(state.exercises.map((e) => e.id));
+        const add = remote.filter((e) => !ids.has(e.id));
+        if (add.length) { state.exercises.push(...add); changed = true; }
+        cloud.synced.exercises = remoteKey;
+        scheduleFlush();
+      }
+      cloud.loaded.meta = true;
+      if (!snap.metadata.fromCache) cloud.server.meta = true;
+      afterSnapshot(changed);
+    }
+
+    function onDaysSnapshot(snap) {
+      let changed = false;
+      cloud.dayDocCount = snap.size;
+      for (const ch of snap.docChanges()) {
+        const d = ch.doc.id;
+        if (!DATE_RE.test(d)) continue;
+        const localKey = dayKey(d);
+        const dirty = (cloud.synced.days.get(d) ?? EMPTY_DAY_KEY) !== localKey;
+        if (ch.type === 'removed') {
+          if (!dirty) {
+            if (localKey !== EMPTY_DAY_KEY) { applyDay(d, null); changed = true; }
+            cloud.synced.days.delete(d);
+          }
+          continue;
+        }
+        const remote = normDay(ch.doc.data());
+        const remoteKey = JSON.stringify(remote);
+        if (!dirty) {
+          if (remoteKey !== localKey) { applyDay(d, remote); changed = true; }
+          cloud.synced.days.set(d, remoteKey);
+        } else if (remoteKey === localKey) {
+          cloud.synced.days.set(d, remoteKey);
+        }
+        // dirty かつ内容が違う場合は、この端末の未送信の変更を優先（次の flush で上書き）
+      }
+      cloud.loaded.days = true;
+      if (!snap.metadata.fromCache) cloud.server.days = true;
+      afterSnapshot(changed);
+    }
+
+    function afterSnapshot(changed) {
+      if (!cloud.initialized) {
+        const knownDevice = cloud.user && getFlag(initFlagKey(cloud.user.uid));
+        const serverReady = cloud.server.meta && cloud.server.days;
+        const cacheReady = cloud.loaded.meta && cloud.loaded.days && knownDevice;
+        if (serverReady || cacheReady) initializeCloudData(serverReady);
+        return;
+      }
+      if (changed) requestRender();
+      else renderAuth();
+    }
+
+    function localHasRecords(d) {
+      return Object.keys(d.bodyweight).length > 0 ||
+        Object.values(d.workouts).some((list) => list.some((en) => validSets(en.sets).length > 0));
+    }
+
+    // この端末のデータをクラウドのデータに統合（同じ日・同じ種目はクラウド優先）
+    function mergeLocalData(local) {
+      const byName = new Map(state.exercises.map((e) => [e.name.trim().toLowerCase(), e.id]));
+      const idMap = {};
+      for (const ex of local.exercises) {
+        const k = ex.name.trim().toLowerCase();
+        if (byName.has(k)) { idMap[ex.id] = byName.get(k); continue; }
+        const id = state.exercises.some((e) => e.id === ex.id) ? uid() : ex.id;
+        state.exercises.push({ id, name: ex.name });
+        byName.set(k, id);
+        idMap[ex.id] = id;
+      }
+      for (const [d, entries] of Object.entries(local.workouts)) {
+        const list = state.workouts[d] ? [...state.workouts[d]] : [];
+        for (const en of entries) {
+          if (!validSets(en.sets).length) continue;
+          const exerciseId = idMap[en.exerciseId] || en.exerciseId;
+          if (list.some((x) => x.exerciseId === exerciseId)) continue;
+          list.push({ id: uid(), exerciseId, sets: en.sets.map((s) => ({ weight: s.weight, reps: s.reps })) });
+        }
+        if (list.length) state.workouts[d] = list;
+      }
+      for (const [d, v] of Object.entries(local.bodyweight)) {
+        if (state.bodyweight[d] === undefined) state.bodyweight[d] = v;
+      }
+    }
+
+    function initializeCloudData(serverConfirmed) {
+      cloud.initialized = true;
+      const flagKey = initFlagKey(cloud.user.uid);
+      const firstTimeOnDevice = !getFlag(flagKey);
+      setFlag(flagKey);
+      showLoading(false);
+
+      if (serverConfirmed && firstTimeOnDevice) {
+        const local = load();
+        const cloudEmpty = !cloud.metaExists && cloud.dayDocCount === 0;
+        if (cloudEmpty) {
+          // クラウドが空 = はじめての利用
+          if (localHasRecords(local) &&
+              confirm('クラウドにはまだデータがありません。\nこの端末に保存されている記録をクラウドにアップロードしますか？\n\n（「キャンセル」で空の状態から始めます）')) {
+            state = local;
+          } else {
+            state.exercises = local.exercises.length ? local.exercises : defaultData().exercises;
+          }
+          toast('クラウド同期を開始しました');
+        } else if (localHasRecords(local) &&
+                   confirm('この端末にもログイン前の記録があります。\nクラウドのデータに統合しますか？\n\n（同じ日の同じ種目・体重はクラウド側を優先します）')) {
+          mergeLocalData(local);
+          toast('この端末の記録をクラウドに統合しました');
+        }
+      }
+      flush();
+      renderAll();
+    }
+
+    function scheduleFlush() {
+      clearTimeout(cloud.timer);
+      cloud.timer = setTimeout(flush, 600);
+    }
+
+    function trackWrite(promise) {
+      cloud.pending++;
+      renderAuth();
+      promise
+        .catch((e) => { console.error(e); toast('クラウドへの保存に失敗しました：' + authErrorMessage(e), 'error'); })
+        .finally(() => { cloud.pending--; renderAuth(); });
+    }
+
+    function flush() {
+      clearTimeout(cloud.timer);
+      cloud.timer = null;
+      if (mode !== 'cloud' || !cloud.user || !cloud.initialized) return;
+      const { doc, writeBatch, serverTimestamp } = cloud.F;
+      const uidStr = cloud.user.uid;
+      const ops = [];
+
+      const exKey = JSON.stringify(state.exercises);
+      if (exKey !== cloud.synced.exercises) {
+        ops.push({ type: 'set', ref: doc(cloud.db, 'users', uidStr), data: { exercises: state.exercises, updatedAt: serverTimestamp() } });
+        cloud.synced.exercises = exKey;
+      }
+
+      const dates = new Set([...Object.keys(state.workouts), ...Object.keys(state.bodyweight), ...cloud.synced.days.keys()]);
+      for (const d of dates) {
+        const key = dayKey(d);
+        if (key === (cloud.synced.days.get(d) ?? EMPTY_DAY_KEY)) continue;
+        const ref = doc(cloud.db, 'users', uidStr, 'days', d);
+        if (key === EMPTY_DAY_KEY) {
+          ops.push({ type: 'delete', ref });
+          cloud.synced.days.delete(d);
+        } else {
+          ops.push({ type: 'set', ref, data: { ...dayPayload(d), updatedAt: serverTimestamp() } });
+          cloud.synced.days.set(d, key);
+        }
+      }
+
+      // 1バッチ500件までの制限に合わせて分割
+      for (let i = 0; i < ops.length; i += 400) {
+        const batch = writeBatch(cloud.db);
+        for (const op of ops.slice(i, i + 400)) {
+          if (op.type === 'set') batch.set(op.ref, op.data);
+          else batch.delete(op.ref);
+        }
+        trackWrite(batch.commit());
+      }
+    }
+
+    async function login() {
+      if (!cloud.A) { toast(cloud.error || 'Firebaseの準備中です。少し待ってからもう一度お試しください', 'error'); return; }
+      const { GoogleAuthProvider, signInWithPopup, signInWithRedirect } = cloud.A;
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      try {
+        await signInWithPopup(cloud.auth, provider);
+      } catch (e) {
+        if (e.code === 'auth/popup-blocked') {
+          await signInWithRedirect(cloud.auth, provider);
+        } else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+          toast(authErrorMessage(e), 'error');
+        }
+      }
+    }
+
+    async function logout() {
+      if (!confirm('ログアウトしますか？\n（クラウドのデータは消えません。再ログインでまた表示されます）')) return;
+      flush();
+      if (cloud.pending > 0 && !navigator.onLine &&
+          !confirm('まだクラウドに送信していない記録があります。\nオンラインに戻ってから送信されますが、このままログアウトしますか？')) return;
+      try {
+        if (cloud.pending > 0 && navigator.onLine) {
+          await Promise.race([cloud.F.waitForPendingWrites(cloud.db), new Promise((r) => setTimeout(r, 4000))]);
+        }
+        await cloud.A.signOut(cloud.auth);
+        toast('ログアウトしました');
+      } catch (e) {
+        toast(authErrorMessage(e), 'error');
+      }
+    }
+
+    function renderAuth() {
+      const area = $('#authArea');
+      let html = '';
+      let note = '';
+      if (!CLOUD_ENABLED) {
+        note = 'データはこのブラウザ内（localStorage）にのみ保存されます。ブラウザのデータ削除で消えるため、定期的にエクスポートでバックアップしてください。';
+      } else if (!cloud.authResolved) {
+        html = `<span class="flex items-center gap-1.5 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-slate-400 ring-1 ring-white/5">
+                  <span class="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span><span class="hidden sm:inline">接続中…</span></span>`;
+        note = 'クラウドに接続しています…';
+      } else if (!cloud.user) {
+        html = `<button data-auth="login" class="btn btn-primary px-2.5 sm:px-3" title="Googleアカウントでログインして、スマホとPCで同期">
+                  <i data-lucide="log-in"></i><span class="hidden sm:inline">ログインして同期</span></button>`;
+        note = 'ログインしていないため、この端末だけに保存されています。ログインするとスマホとPCで記録を同期できます。';
+      } else {
+        let dot = 'bg-emerald-400', label = '同期済み';
+        if (!navigator.onLine) { dot = 'bg-slate-400'; label = cloud.pending ? 'オフライン（未送信あり）' : 'オフライン'; }
+        else if (cloud.pending || cloud.timer) { dot = 'bg-amber-400 animate-pulse'; label = '同期中…'; }
+        html = `
+          <span class="flex items-center gap-1.5 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-slate-300 ring-1 ring-white/5" title="${esc(label)}">
+            <span class="h-2 w-2 rounded-full ${dot}"></span><span class="hidden sm:inline">${esc(label)}</span>
+          </span>
+          <button data-auth="logout" class="icon-btn" title="ログアウト（${esc(cloud.user.email || '')}）"><i data-lucide="log-out"></i></button>`;
+        note = `クラウド同期中：${esc(cloud.user.email || '')}。どの端末でも同じアカウントでログインすれば同じ記録が表示されます。電波がない場所での記録も、接続が戻ると自動で送信されます。`;
+      }
+      area.innerHTML = html;
+      $$('[data-role="storage-note"]').forEach((el) => { el.innerHTML = note; });
+      icons();
+    }
+
+    $('#authArea').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-auth]');
+      if (!btn) return;
+      if (btn.dataset.auth === 'login') login();
+      if (btn.dataset.auth === 'logout') logout();
+    });
+    window.addEventListener('online', renderAuth);
+    window.addEventListener('offline', renderAuth);
+    // 画面を閉じる・切り替える前に未送信の変更を送る
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cloud.timer) flush(); });
+    window.addEventListener('pagehide', () => { if (cloud.timer) flush(); });
+
+    /* =========================================================
+     * イベント
+     * ========================================================= */
+    // 日付
+    $('#prevDay').addEventListener('click', () => setDate(addDays(ui.date, -1)));
+    $('#nextDay').addEventListener('click', () => setDate(addDays(ui.date, 1)));
+    $('#btnToday').addEventListener('click', () => setDate(todayStr()));
+    $('#datePicker').addEventListener('change', (e) => { if (e.target.value) setDate(e.target.value); });
+    $('#btnCal').addEventListener('click', () => { ui.calOpen = !ui.calOpen; renderCalToggle(); });
+
+    // カレンダー
+    $('#calendar').addEventListener('click', (e) => {
+      const nav = e.target.closest('[data-cal]');
+      if (nav) {
+        ui.calMonth += nav.dataset.cal === 'prev' ? -1 : 1;
+        if (ui.calMonth < 0) { ui.calMonth = 11; ui.calYear--; }
+        if (ui.calMonth > 11) { ui.calMonth = 0; ui.calYear++; }
+        renderCalendar();
+        icons();
+        return;
+      }
+      const day = e.target.closest('[data-date]');
+      if (day) setDate(day.dataset.date);
+    });
+
+    // タブ
+    $$('.tab-btn').forEach((b) => b.addEventListener('click', () => {
+      ui.tab = b.dataset.tab;
+      saveUI();
+      renderTabs();
+    }));
+
+    // 種目選択
+    $('#exerciseSelect').addEventListener('change', (e) => {
+      ui.selectedExerciseId = e.target.value;
+      renderExerciseSelect();
+      renderSelectPreview();
+      icons();
+    });
+    $('#btnAddEntry').addEventListener('click', () => addEntry(ui.selectedExerciseId));
+    $('#btnManageEx').addEventListener('click', openExModal);
+
+    // セット入力（フォーカスを維持したまま即時保存）
+    const entryList = $('#entryList');
+    entryList.addEventListener('input', (e) => {
+      const inp = e.target.closest('input[data-field]');
+      if (!inp) return;
+      const card = inp.closest('[data-entry-id]');
+      const entry = getEntry(card.dataset.entryId);
+      const idx = Number(inp.dataset.index);
+      if (!entry || !entry.sets[idx]) return;
+      let v = num(inp.value);
+      if (v !== null && v < 0) v = null;
+      if (v !== null && inp.dataset.field === 'reps') v = Math.floor(v);
+      if (v !== null && inp.dataset.field === 'weight') v = r2(v);
+      entry.sets[idx][inp.dataset.field] = v;
+      save();
+      updateCardIndicators(card, entry);
+      renderDaySummary();
+      renderCalendar();
+      renderStats();
+      icons();
+    });
+
+    // Enterで次の入力欄へ
+    entryList.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || !e.target.matches('input[data-field]')) return;
+      e.preventDefault();
+      const inputs = $$('input[data-field]', e.target.closest('[data-entry-id]'));
+      const next = inputs[inputs.indexOf(e.target) + 1];
+      if (next) next.focus(); else e.target.blur();
+    });
+
+    entryList.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const card = btn.closest('[data-entry-id]');
+      const entryId = card.dataset.entryId;
+      const entry = getEntry(entryId);
+      if (!entry) return;
+
+      if (btn.dataset.action === 'add-set') {
+        const last = entry.sets[entry.sets.length - 1];
+        entry.sets.push({ weight: last ? last.weight : null, reps: null });
+        save();
+        const fresh = rerenderCard(entryId);
+        const rows = fresh ? $$('[data-row]', fresh) : [];
+        const row = rows[rows.length - 1];
+        if (row) $(last && last.weight !== null ? 'input[data-field="reps"]' : 'input[data-field="weight"]', row).focus();
+      }
+
+      if (btn.dataset.action === 'delete-set') {
+        entry.sets.splice(Number(btn.dataset.index), 1);
+        save();
+        rerenderCard(entryId);
+        renderCalendar();
+        renderStats();
+        icons();
+      }
+
+      if (btn.dataset.action === 'delete-entry') {
+        const ex = getExercise(entry.exerciseId);
+        if (validSets(entry.sets).length && !confirm(`「${ex ? ex.name : '不明な種目'}」のこの日の記録を削除しますか？`)) return;
+        state.workouts[ui.date] = dayEntries().filter((x) => x.id !== entryId);
+        save();
+        renderWorkout();
+        renderCalendar();
+        renderStats();
+        icons();
+        toast('記録を削除しました');
+      }
+    });
+
+    // 体重
+    $('#weightInput').addEventListener('input', renderWeightDiff);
+    $('#weightForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = num($('#weightInput').value);
+      if (v === null || v <= 0 || v >= 500) {
+        toast('正しい体重（0〜500kg）を入力してください', 'error');
+        return;
+      }
+      state.bodyweight[ui.date] = r2(v);
+      save();
+      renderWeight();
+      renderCalendar();
+      renderStats();
+      icons();
+      toast(`${fmtShort(ui.date)} の体重 ${r2(v).toFixed(2)}kg を保存しました`);
+    });
+    $('#btnDeleteWeight').addEventListener('click', () => {
+      if (!confirm(`${fmtShort(ui.date)} の体重記録を削除しますか？`)) return;
+      delete state.bodyweight[ui.date];
+      save();
+      renderWeight();
+      renderCalendar();
+      renderStats();
+      icons();
+      toast('体重記録を削除しました');
+    });
+    $('#weightHistory').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-wdate]');
+      if (row) setDate(row.dataset.wdate);
+    });
+
+    // 種目管理モーダル
+    $('#exModal').addEventListener('click', (e) => {
+      if (e.target.closest('[data-close]')) { closeExModal(); return; }
+      const btn = e.target.closest('[data-ex-action]');
+      if (!btn) return;
+      const id = btn.closest('[data-ex-id]').dataset.exId;
+      const ex = getExercise(id);
+      if (!ex) return;
+
+      if (btn.dataset.exAction === 'rename') {
+        const name = prompt('新しい種目名を入力してください', ex.name);
+        if (name === null) return;
+        const trimmed = name.trim().slice(0, 40);
+        if (!trimmed) { toast('種目名を入力してください', 'error'); return; }
+        if (nameExists(trimmed, id)) { toast('同じ名前の種目が既にあります', 'error'); return; }
+        ex.name = trimmed;
+        save();
+        renderExList();
+        renderWorkout();
+        toast('種目名を変更しました');
+      }
+
+      if (btn.dataset.exAction === 'delete') {
+        const c = countRecords(id);
+        const msg = c
+          ? `「${ex.name}」を削除しますか？\n\nこの種目の記録（${c}日分）もすべて削除されます。この操作は元に戻せません。`
+          : `「${ex.name}」を削除しますか？`;
+        if (!confirm(msg)) return;
+        state.exercises = state.exercises.filter((x) => x.id !== id);
+        for (const d of Object.keys(state.workouts)) {
+          state.workouts[d] = state.workouts[d].filter((en) => en.exerciseId !== id);
+        }
+        if (ui.selectedExerciseId === id) ui.selectedExerciseId = '';
+        save();
+        renderExList();
+        renderWorkout();
+        renderCalendar();
+        renderStats();
+        icons();
+        toast('種目を削除しました');
+      }
+    });
+
+    $('#exAddForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = $('#exNameInput');
+      const name = input.value.trim().slice(0, 40);
+      if (!name) { toast('種目名を入力してください', 'error'); return; }
+      if (nameExists(name)) { toast('同じ名前の種目が既にあります', 'error'); return; }
+      const ex = { id: uid(), name };
+      state.exercises.push(ex);
+      ui.selectedExerciseId = ex.id;
+      save();
+      input.value = '';
+      renderExList();
+      renderWorkout();
+      renderStats();
+      icons();
+      toast(`「${name}」を追加しました`);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isModalOpen()) closeExModal();
+    });
+
+    // エクスポート / インポート
+    $('#btnExport').addEventListener('click', exportData);
+    $('#btnImport').addEventListener('click', () => $('#importFile').click());
+    $('#importFile').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) await importData(file);
+      e.target.value = '';
+    });
+
+    // 数値入力欄でのホイールによる誤変更を防止
+    document.addEventListener('wheel', (e) => {
+      const el = document.activeElement;
+      if (el && el.type === 'number' && el === e.target) el.blur();
+    }, { passive: true });
+
+    // 別タブでの変更を反映
+    window.addEventListener('storage', (e) => {
+      if (e.key === STORAGE_KEY && mode === 'local') { state = load(); renderAll(); }
+    });
+
+    /* =========================================================
+     * 起動
+     * ========================================================= */
+    if (mode === 'local') save();
+    renderAll();
+    initCloud();
+  })();
+  </script>
+</body>
+</html>
