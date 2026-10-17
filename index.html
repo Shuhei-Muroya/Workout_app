@@ -273,6 +273,9 @@
       </div>
       <form id="exAddForm" class="flex gap-2 p-4" autocomplete="off">
         <input id="exNameInput" class="input min-w-0 flex-1" maxlength="40" placeholder="例：ダンベルベンチプレス">
+        <label class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-semibold text-slate-300" title="懸垂・ディップスなど、体重を使う種目">
+          <input id="exBwInput" type="checkbox" class="h-4 w-4 accent-sky-500">自重
+        </label>
         <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i>追加</button>
       </form>
       <ul id="exList" class="space-y-2 overflow-y-auto px-4 pb-4"></ul>
@@ -400,7 +403,7 @@
         const id = String(e.id);
         if (seen.has(id)) continue;
         seen.add(id);
-        out.push({ id, name: e.name.trim().slice(0, 40) });
+        out.push(e.bw ? { id, name: e.name.trim().slice(0, 40), bw: true } : { id, name: e.name.trim().slice(0, 40) });
       }
       return out;
     }
@@ -559,6 +562,14 @@
 
     const hasWorkout = (date) => dayEntries(date).some((en) => validSets(en.sets).length > 0);
 
+    function bodyweightAt(date) {
+      const ds = Object.keys(state.bodyweight).sort();
+      if (!ds.length) return null;
+      let hit = null;
+      for (const d of ds) { if (d <= date) hit = d; else break; }
+      return state.bodyweight[hit || ds[0]];
+    }
+
     function prevBodyweight(before) {
       const ds = Object.keys(state.bodyweight).filter((d) => d < before).sort();
       const d = ds[ds.length - 1];
@@ -583,8 +594,16 @@
       return `<span class="inline-flex items-center justify-center whitespace-nowrap rounded-full font-extrabold tracking-wide ring-1 ${size} ${t.cls}">${t.label}</span>`;
     }
 
-    const weightRepsHTML = (w, r, cls = '') =>
-      `<span class="tabular-nums ${cls}">${fmtNum(w)}<span class="text-xs font-semibold text-slate-400">kg</span> × ${r}<span class="text-xs font-semibold text-slate-400">回</span></span>`;
+    // 自重種目は「自重」「自重+5kg」と表示（重量欄は加重分）
+    const isBwExercise = (id) => !!(getExercise(id) || {}).bw;
+    const loadText = (w, bw) => (bw ? (w ? `自重+${fmtNum(w)}` : '自重') : fmtNum(w));
+    const loadHTML = (w, bw) => {
+      const kg = '<span class="text-xs font-semibold text-slate-400">kg</span>';
+      if (!bw) return `${fmtNum(w)}${kg}`;
+      return w ? `自重+${fmtNum(w)}${kg}` : '自重';
+    };
+    const weightRepsHTML = (w, r, bw = false) =>
+      `<span class="tabular-nums">${loadHTML(w, bw)} × ${r}<span class="text-xs font-semibold text-slate-400">回</span></span>`;
 
     /* =========================================================
      * 日付・カレンダー
@@ -734,21 +753,21 @@
       box.innerHTML = `
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-violet-500/10 px-3 py-2 text-sm ring-1 ring-violet-400/20">
           <span class="flex items-center gap-1.5 font-semibold text-violet-300"><i data-lucide="history" class="h-4 w-4"></i>前回 ${fmtShort(prev.date)}・${relFrom(prev.date, ui.date)}</span>
-          <span>最大 <b>${weightRepsHTML(prev.summary.maxWeight, prev.summary.repsAtMax)}</b></span>
-          <span class="text-slate-400">${prev.summary.setCount}セット / ${fmtVol(prev.summary.volume)}kg</span>
+          <span>最大 <b>${weightRepsHTML(prev.summary.maxWeight, prev.summary.repsAtMax, isBwExercise(id))}</b></span>
+          <span class="text-slate-400">${prev.summary.setCount}セット${isBwExercise(id) ? '' : ` / ${fmtVol(prev.summary.volume)}kg`}</span>
         </div>`;
     }
 
-    function prevPanelHTML(prev) {
+    function prevPanelHTML(prev, bw) {
       const prevSide = prev
         ? `<div class="text-[11px] font-semibold text-slate-500">前回 最大</div>
-           <div class="text-lg font-extrabold">${weightRepsHTML(prev.summary.maxWeight, prev.summary.repsAtMax)}</div>`
+           <div class="text-lg font-extrabold">${weightRepsHTML(prev.summary.maxWeight, prev.summary.repsAtMax, bw)}</div>`
         : `<div class="text-[11px] font-semibold text-slate-500">前回</div>
            <div class="text-sm font-semibold text-slate-400">記録なし</div>`;
       const chips = prev
         ? `<div class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-2">
              <span class="flex items-center gap-1 text-[11px] font-semibold text-slate-500"><i data-lucide="history" class="h-3.5 w-3.5"></i>${fmtShort(prev.date)}・${relFrom(prev.date, ui.date)}</span>
-             ${prev.sets.map((s, i) => `<span class="rounded-md bg-slate-900/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-300 ring-1 ring-white/5">${i + 1}: ${fmtNum(s.weight)}×${s.reps}</span>`).join('')}
+             ${prev.sets.map((s, i) => `<span class="rounded-md bg-slate-900/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-300 ring-1 ring-white/5">${i + 1}: ${loadText(s.weight, bw)}×${s.reps}</span>`).join('')}
            </div>`
         : '';
       return `
@@ -765,14 +784,14 @@
         </div>`;
     }
 
-    function setRowHTML(s, i, prev) {
+    function setRowHTML(s, i, prev, bw) {
       const p = prev && prev.sets[i];
       return `
         <div class="${SET_GRID}" data-row="${i}">
           <div class="grid h-10 place-items-center rounded-lg bg-slate-800 text-sm font-extrabold text-slate-300 tabular-nums">${i + 1}</div>
           <input data-field="weight" data-index="${i}" type="number" inputmode="decimal" step="any" min="0"
             class="input h-10 w-full px-2 text-center font-bold tabular-nums" value="${fmtNum(s.weight)}"
-            placeholder="${p ? fmtNum(p.weight) : 'kg'}" aria-label="第${i + 1}セット 重量(kg)">
+            placeholder="${p ? fmtNum(p.weight) : bw ? '0' : 'kg'}" aria-label="第${i + 1}セット ${bw ? '加重' : '重量'}(kg)">
           <input data-field="reps" data-index="${i}" type="number" inputmode="numeric" step="1" min="0"
             class="input h-10 w-full px-2 text-center font-bold tabular-nums" value="${s.reps ?? ''}"
             placeholder="${p ? p.reps : '回'}" aria-label="第${i + 1}セット 回数">
@@ -786,8 +805,9 @@
     function entryCardHTML(entry) {
       const ex = getExercise(entry.exerciseId);
       const prev = findPrevious(entry.exerciseId, ui.date);
+      const bw = !!(ex && ex.bw);
       const rows = entry.sets.length
-        ? entry.sets.map((s, i) => setRowHTML(s, i, prev)).join('')
+        ? entry.sets.map((s, i) => setRowHTML(s, i, prev, bw)).join('')
         : `<p class="rounded-xl border border-dashed border-white/10 py-4 text-center text-sm text-slate-500">セットがありません。「セット追加」で入力を始めましょう。</p>`;
       return `
         <article class="card anim-pop overflow-hidden" data-entry-id="${esc(entry.id)}">
@@ -795,17 +815,19 @@
             <div class="flex min-w-0 items-center gap-2.5">
               <div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-500/15 text-violet-300"><i data-lucide="dumbbell" class="h-4 w-4"></i></div>
               <h3 class="truncate font-bold">${esc(ex ? ex.name : '不明な種目')}</h3>
+              ${bw ? '<span class="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold text-sky-300 ring-1 ring-sky-400/30">自重</span>' : ''}
             </div>
             <button data-action="delete-entry" class="icon-btn text-slate-500 hover:text-rose-400" title="この種目の記録を削除">
               <i data-lucide="trash-2"></i>
             </button>
           </div>
-          <div class="px-4 pt-3">${prevPanelHTML(prev)}</div>
+          <div class="px-4 pt-3">${prevPanelHTML(prev, bw)}</div>
           <div class="px-4 py-3">
             ${entry.sets.length ? `
             <div class="${SET_GRID} px-0.5 pb-1.5 text-[10px] font-bold tracking-wider text-slate-500 sm:text-[11px]">
-              <div class="text-center">SET</div><div class="text-center">重量 (kg)</div><div class="text-center">回数 (reps)</div><div class="text-center">前回比</div><div></div>
+              <div class="text-center">SET</div><div class="text-center">${bw ? '加重 (kg)' : '重量 (kg)'}</div><div class="text-center">回数 (reps)</div><div class="text-center">前回比</div><div></div>
             </div>` : ''}
+            ${bw ? '<p class="mb-2 text-[11px] text-slate-500">自重種目：重量欄には「加重分」を入力します（自重のみなら 0）。</p>' : ''}
             <div data-role="sets" class="space-y-2">${rows}</div>
             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
               <button data-action="add-set" class="btn btn-secondary"><i data-lucide="plus"></i>セット追加</button>
@@ -820,12 +842,13 @@
       if (!card || !entry) return;
       const prev = findPrevious(entry.exerciseId, ui.date);
       const cur = summarize(validSets(entry.sets));
+      const bw = isBwExercise(entry.exerciseId);
 
       // 全体比較（最大重量 → 同重量なら回数）
       let overall = 'none';
       if (cur) overall = prev ? compareVals(cur.maxWeight, cur.repsAtMax, prev.summary.maxWeight, prev.summary.repsAtMax) : 'first';
       $('[data-role="overall"]', card).innerHTML = badge(overall, true);
-      $('[data-role="cur-max"]', card).innerHTML = cur ? weightRepsHTML(cur.maxWeight, cur.repsAtMax) : '<span class="text-slate-500">—</span>';
+      $('[data-role="cur-max"]', card).innerHTML = cur ? weightRepsHTML(cur.maxWeight, cur.repsAtMax, bw) : '<span class="text-slate-500">—</span>';
 
       // セットごとの比較（前回の同じセット番号と比較）
       entry.sets.forEach((s, i) => {
@@ -842,7 +865,10 @@
 
       // ボリューム
       const vol = $('[data-role="volume"]', card);
-      if (cur) {
+      if (cur && bw) {
+        const reps = validSets(entry.sets).reduce((a, s) => a + s.reps, 0);
+        vol.innerHTML = `${cur.setCount}セット・合計 <b class="text-slate-200 tabular-nums">${reps}回</b>`;
+      } else if (cur) {
         let diffHTML = '';
         if (prev) {
           const d = Math.round(cur.volume - prev.summary.volume);
@@ -913,7 +939,11 @@
       const entry = {
         id: uid(),
         exerciseId: exId,
-        sets: [{ weight: prev ? prev.sets[0].weight : null, reps: null }],
+        // 基本は3セット。1セット目を入力すると、同じ値のままのセットにも自動で反映される
+        sets: Array.from({ length: 3 }, () => ({
+          weight: prev ? prev.sets[0].weight : isBwExercise(exId) ? 0 : null,
+          reps: null,
+        })),
       };
       if (!state.workouts[ui.date]) state.workouts[ui.date] = [];
       state.workouts[ui.date].push(entry);
@@ -1046,7 +1076,8 @@
               <div class="truncate font-semibold">${esc(ex.name)}</div>
               <div class="text-[11px] text-slate-500">${c ? `記録 ${c}日分` : '記録なし'}</div>
             </div>
-            <div class="flex shrink-0 items-center">
+            <div class="flex shrink-0 items-center gap-1">
+              <button data-ex-action="toggle-bw" class="rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 transition ${ex.bw ? 'bg-sky-500/15 text-sky-300 ring-sky-400/40' : 'text-slate-500 ring-white/10 hover:text-slate-300'}" title="自重種目（懸垂など）として扱うか切り替え">自重</button>
               <button data-ex-action="rename" class="icon-btn text-slate-400" title="名前を変更"><i data-lucide="pencil"></i></button>
               <button data-ex-action="delete" class="icon-btn text-slate-400 hover:text-rose-400" title="削除"><i data-lucide="trash-2"></i></button>
             </div>
@@ -1195,16 +1226,19 @@
           .map((d) => ({ date: d, value: state.bodyweight[d], detail: '' }));
       }
       const metric = STAT_METRICS[ui.statMetric];
+      const bw = isBwExercise(ui.statTarget);
       const out = [];
       for (const d of Object.keys(state.workouts).sort()) {
         if (d < cutoff) continue;
         const en = state.workouts[d].find((e) => e.exerciseId === ui.statTarget);
         const vs = en ? validSets(en.sets) : [];
         if (!vs.length) continue;
+        const body = bw ? bodyweightAt(d) : 0;
+        const calcSets = bw ? vs.map((s) => ({ weight: (body || 0) + s.weight, reps: s.reps })) : vs;
         out.push({
           date: d,
-          value: metric.calc(vs),
-          detail: vs.map((s) => `${fmtNum(s.weight)}×${s.reps}`).join(', '),
+          value: metric.calc(calcSets),
+          detail: vs.map((s) => `${loadText(s.weight, bw)}×${s.reps}`).join(', ') + (bw && body ? `（体重 ${body.toFixed(1)}kg）` : ''),
         });
       }
       return out;
@@ -1377,7 +1411,13 @@
       // 指標（体重のときは不要）
       $('#statMetric').innerHTML = isBW ? '' : Object.entries(STAT_METRICS).map(([k, mt]) => `
         <button data-metric="${k}" class="rounded-full px-3 py-1.5 text-xs font-bold ring-1 transition ${ui.statMetric === k ? 'bg-violet-500/20 text-violet-200 ring-violet-400/50' : 'text-slate-400 ring-white/10 hover:text-slate-200'}">${mt.label}</button>`).join('');
-      $('#statMetricNote').textContent = isBW ? '記録した日の体重の推移です。' : STAT_METRICS[ui.statMetric].note;
+      $('#statMetricNote').textContent = isBW
+        ? '記録した日の体重の推移です。'
+        : STAT_METRICS[ui.statMetric].note + (isBwExercise(ui.statTarget)
+          ? (Object.keys(state.bodyweight).length
+            ? '自重種目のため「その日の体重＋加重」を重量として計算しています。'
+            : '自重種目です。体重を記録すると「体重＋加重」で計算されます（今は加重分のみ）。')
+          : '');
 
       const chartBox = $('#statChart');
       const tiles = $('#statTiles');
@@ -1524,10 +1564,15 @@
         const sessions = dates
           .map((d) => { const en = state.workouts[d].find((e) => e.exerciseId === ex.id); const vs = en ? validSets(en.sets) : []; return vs.length ? { d, vs } : null; })
           .filter(Boolean);
-        if (!sessions.length) { lines.push(`- ${ex.name}: 記録なし`); continue; }
+        const label = ex.bw ? `${ex.name}（自重種目。「自重+5」は体重に5kg加重、「自重」は加重なし）` : ex.name;
+        if (!sessions.length) { lines.push(`- ${label}: 記録なし`); continue; }
         const last = sessions[sessions.length - 1];
         const recent = sessions.filter((x) => x.d >= from);
         const best = Math.max(...sessions.map((x) => e1rm(x.vs)));
+        if (ex.bw) {
+          lines.push(`- ${label}: 最終実施 ${last.d}（${daysBetween(last.d, today)}日前）／直近90日で${recent.length}回／最新 ${last.vs.map((s) => `${loadText(s.weight, true)}×${s.reps}`).join(', ')}`);
+          continue;
+        }
         let trend = '';
         if (recent.length >= 2) trend = `／推定1RM ${r1(e1rm(recent[0].vs))}kg（${recent[0].d}）→ ${r1(e1rm(last.vs))}kg（${last.d}）`;
         else trend = `／推定1RM 最新 ${r1(e1rm(last.vs))}kg`;
@@ -1539,7 +1584,7 @@
       let count = 0;
       for (const d of recentDates) {
         const parts = state.workouts[d]
-          .map((en) => { const vs = validSets(en.sets); if (!vs.length) return null; const ex = getExercise(en.exerciseId); return `${ex ? ex.name : '不明な種目'} ${vs.map((s) => `${fmtNum(s.weight)}×${s.reps}`).join(', ')}`; })
+          .map((en) => { const vs = validSets(en.sets); if (!vs.length) return null; const ex = getExercise(en.exerciseId); return `${ex ? ex.name : '不明な種目'} ${vs.map((s) => `${loadText(s.weight, !!(ex && ex.bw))}×${s.reps}`).join(', ')}`; })
           .filter(Boolean);
         if (parts.length) { lines.push(`${d}(${WD[parseDate(d).getDay()]}): ${parts.join(' / ')}`); count++; }
       }
@@ -1976,7 +2021,7 @@
         const k = ex.name.trim().toLowerCase();
         if (byName.has(k)) { idMap[ex.id] = byName.get(k); continue; }
         const id = state.exercises.some((e) => e.id === ex.id) ? uid() : ex.id;
-        state.exercises.push({ id, name: ex.name });
+        state.exercises.push(ex.bw ? { id, name: ex.name, bw: true } : { id, name: ex.name });
         byName.set(k, id);
         idMap[ex.id] = id;
       }
@@ -2208,7 +2253,18 @@
       if (v !== null && v < 0) v = null;
       if (v !== null && inp.dataset.field === 'reps') v = Math.floor(v);
       if (v !== null && inp.dataset.field === 'weight') v = r2(v);
-      entry.sets[idx][inp.dataset.field] = v;
+      const field = inp.dataset.field;
+      const old = entry.sets[idx][field];
+      entry.sets[idx][field] = v;
+      // 1セット目を入力したら、まだ同じ値（または空）のセットにも反映
+      if (idx === 0) {
+        entry.sets.forEach((s, i) => {
+          if (i === 0 || (s[field] !== old && s[field] !== null)) return;
+          s[field] = v;
+          const other = $(`[data-row="${i}"] input[data-field="${field}"]`, card);
+          if (other) other.value = field === 'weight' ? fmtNum(v) : (v ?? '');
+        });
+      }
       save();
       updateCardIndicators(card, entry);
       renderDaySummary();
@@ -2236,7 +2292,7 @@
 
       if (btn.dataset.action === 'add-set') {
         const last = entry.sets[entry.sets.length - 1];
-        entry.sets.push({ weight: last ? last.weight : null, reps: null });
+        entry.sets.push({ weight: last ? last.weight : null, reps: last ? last.reps : null });
         save();
         const fresh = rerenderCard(entryId);
         const rows = fresh ? $$('[data-row]', fresh) : [];
@@ -2307,6 +2363,16 @@
       const ex = getExercise(id);
       if (!ex) return;
 
+      if (btn.dataset.exAction === 'toggle-bw') {
+        if (ex.bw) delete ex.bw; else ex.bw = true;
+        save();
+        renderExList();
+        renderWorkout();
+        if (ui.tab === 'stats') renderAnalytics();
+        toast(ex.bw ? `「${ex.name}」を自重種目にしました` : `「${ex.name}」を通常の種目にしました`);
+        return;
+      }
+
       if (btn.dataset.exAction === 'rename') {
         const name = prompt('新しい種目名を入力してください', ex.name);
         if (name === null) return;
@@ -2341,14 +2407,24 @@
       }
     });
 
+    // 名前から自重種目らしければ自動でチェック（手動で切り替えた後は触らない）
+    let exBwTouched = false;
+    const BW_NAME_RE = /懸垂|チンニング|チンアップ|プルアップ|ディップス|腕立て|プッシュアップ|自重|レッグレイズ|プランク/i;
+    $('#exBwInput').addEventListener('change', () => { exBwTouched = true; });
+    $('#exNameInput').addEventListener('input', (e) => {
+      if (!exBwTouched) $('#exBwInput').checked = BW_NAME_RE.test(e.target.value);
+    });
+
     $('#exAddForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const input = $('#exNameInput');
       const name = input.value.trim().slice(0, 40);
       if (!name) { toast('種目名を入力してください', 'error'); return; }
       if (nameExists(name)) { toast('同じ名前の種目が既にあります', 'error'); return; }
-      const ex = { id: uid(), name };
+      const ex = $('#exBwInput').checked ? { id: uid(), name, bw: true } : { id: uid(), name };
       state.exercises.push(ex);
+      $('#exBwInput').checked = false;
+      exBwTouched = false;
       ui.selectedExerciseId = ex.id;
       save();
       input.value = '';
