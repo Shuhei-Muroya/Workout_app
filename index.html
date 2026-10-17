@@ -1111,6 +1111,7 @@
       pending: 0,
       timer: null,
       error: '',
+      syncError: '',
     };
     let pendingRender = false;
 
@@ -1229,6 +1230,7 @@
       cloud.metaExists = false;
       cloud.dayDocCount = 0;
       cloud.initialized = false;
+      cloud.syncError = '';
       mode = 'cloud';
       setLastMode('cloud');
       state = emptyData();
@@ -1258,8 +1260,10 @@
 
     function onCloudError(e) {
       console.error(e);
+      cloud.syncError = authErrorMessage(e);
       showLoading(false);
-      toast(authErrorMessage(e), 'error');
+      toast(cloud.syncError, 'error');
+      renderAuth();
     }
 
     function onMetaSnapshot(snap) {
@@ -1397,7 +1401,7 @@
       cloud.pending++;
       renderAuth();
       promise
-        .catch((e) => { console.error(e); toast('クラウドへの保存に失敗しました：' + authErrorMessage(e), 'error'); })
+        .catch((e) => { console.error(e); cloud.syncError = authErrorMessage(e); toast('クラウドへの保存に失敗しました：' + cloud.syncError, 'error'); })
         .finally(() => { cloud.pending--; renderAuth(); });
     }
 
@@ -1488,14 +1492,17 @@
         note = 'ログインしていないため、この端末だけに保存されています。ログインするとスマホとPCで記録を同期できます。';
       } else {
         let dot = 'bg-emerald-400', label = '同期済み';
-        if (!navigator.onLine) { dot = 'bg-slate-400'; label = cloud.pending ? 'オフライン（未送信あり）' : 'オフライン'; }
+        if (cloud.syncError) { dot = 'bg-rose-500'; label = '同期エラー'; }
+        else if (!navigator.onLine) { dot = 'bg-slate-400'; label = cloud.pending ? 'オフライン（未送信あり）' : 'オフライン'; }
         else if (cloud.pending || cloud.timer) { dot = 'bg-amber-400 animate-pulse'; label = '同期中…'; }
         html = `
-          <span class="flex items-center gap-1.5 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-slate-300 ring-1 ring-white/5" title="${esc(label)}">
+          <span class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ${cloud.syncError ? 'bg-rose-500/15 text-rose-300 ring-rose-400/40' : 'bg-slate-800 text-slate-300 ring-white/5'}" title="${esc(cloud.syncError || label)}">
             <span class="h-2 w-2 rounded-full ${dot}"></span><span class="hidden sm:inline">${esc(label)}</span>
           </span>
           <button data-auth="logout" class="icon-btn" title="ログアウト（${esc(cloud.user.email || '')}）"><i data-lucide="log-out"></i></button>`;
-        note = `クラウド同期中：${esc(cloud.user.email || '')}。どの端末でも同じアカウントでログインすれば同じ記録が表示されます。電波がない場所での記録も、接続が戻ると自動で送信されます。`;
+        note = cloud.syncError
+          ? `同期エラー：${esc(cloud.syncError)}。Firebaseの設定を確認してから、ページを再読み込みしてください。`
+          : `クラウド同期中：${esc(cloud.user.email || '')}。どの端末でも同じアカウントでログインすれば同じ記録が表示されます。電波がない場所での記録も、接続が戻ると自動で送信されます。`;
       }
       area.innerHTML = html;
       $$('[data-role="storage-note"]').forEach((el) => { el.innerHTML = note; });
