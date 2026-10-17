@@ -144,6 +144,7 @@
       <div class="card flex gap-1 p-1.5" role="tablist">
         <button class="tab-btn" data-tab="workout" role="tab"><i data-lucide="dumbbell"></i>筋トレ</button>
         <button class="tab-btn" data-tab="weight" role="tab"><i data-lucide="scale"></i>体重</button>
+        <button class="tab-btn" data-tab="stats" role="tab"><i data-lucide="chart-line"></i>統計</button>
       </div>
 
       <!-- 筋トレタブ -->
@@ -200,6 +201,32 @@
             <span id="weightCount" class="text-xs text-slate-500"></span>
           </div>
           <div id="weightHistory"></div>
+        </section>
+      </div>
+
+      <!-- 統計タブ -->
+      <div id="tabStats" class="hidden space-y-4">
+        <section class="card p-4">
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <select id="statTarget" class="input min-w-0 flex-1" aria-label="グラフにする種目"></select>
+            <div id="statRange" class="grid grid-cols-4 gap-1 rounded-xl bg-slate-800/80 p-1 ring-1 ring-white/10" role="group" aria-label="期間"></div>
+          </div>
+          <div id="statMetric" class="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="指標"></div>
+          <p id="statMetricNote" class="mt-2 text-[11px] leading-relaxed text-slate-500"></p>
+        </section>
+
+        <div id="statTiles" class="grid grid-cols-2 gap-2 sm:grid-cols-4"></div>
+
+        <section class="card p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <h3 id="statTitle" class="truncate font-bold"></h3>
+              <p id="statSubtitle" class="text-[11px] text-slate-500"></p>
+            </div>
+            <button id="statTableToggle" class="btn btn-ghost shrink-0 text-xs"><i data-lucide="table"></i><span>表で見る</span></button>
+          </div>
+          <div id="statChart" class="relative mt-3 select-none"></div>
+          <div id="statTable" class="mt-4 hidden"></div>
         </section>
       </div>
 
@@ -428,7 +455,11 @@
       try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch { return {}; }
     }
     function saveUI() {
-      try { localStorage.setItem(UI_KEY, JSON.stringify({ tab: ui.tab })); } catch { /* noop */ }
+      try {
+        localStorage.setItem(UI_KEY, JSON.stringify({
+          tab: ui.tab, statTarget: ui.statTarget, statMetric: ui.statMetric, statRange: ui.statRange,
+        }));
+      } catch { /* noop */ }
     }
 
     const CLOUD_ENABLED = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
@@ -440,11 +471,15 @@
     const savedUI = loadUI();
     const ui = {
       date: todayStr(),
-      tab: savedUI.tab === 'weight' ? 'weight' : 'workout',
+      tab: ['workout', 'weight', 'stats'].includes(savedUI.tab) ? savedUI.tab : 'workout',
       calYear: new Date().getFullYear(),
       calMonth: new Date().getMonth(),
       calOpen: false,
       selectedExerciseId: '',
+      statTarget: typeof savedUI.statTarget === 'string' ? savedUI.statTarget : '',
+      statMetric: typeof savedUI.statMetric === 'string' ? savedUI.statMetric : 'e10',
+      statRange: typeof savedUI.statRange === 'string' ? savedUI.statRange : '90',
+      statTable: false,
     };
 
     /* =========================================================
@@ -620,6 +655,8 @@
       });
       $('#tabWorkout').classList.toggle('hidden', ui.tab !== 'workout');
       $('#tabWeight').classList.toggle('hidden', ui.tab !== 'weight');
+      $('#tabStats').classList.toggle('hidden', ui.tab !== 'stats');
+      if (ui.tab === 'stats') renderAnalytics();
     }
 
     /* =========================================================
@@ -1068,6 +1105,350 @@
         setTimeout(() => el.remove(), 300);
       }, 2400);
     }
+
+    /* =========================================================
+     * 統計（種目ごとの推移グラフ）
+     * ========================================================= */
+    const BW_TARGET = '__bodyweight';
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const CHART_SURFACE = '#0f172a';
+    const CHART_COLOR = { lift: '#8b5cf6', bodyweight: '#0b97d6' }; // ダーク背景で検証済みの色
+    const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const r1 = (n) => Math.round(n * 10) / 10;
+
+    const STAT_METRICS = {
+      e10: {
+        label: '10rep換算',
+        note: '各セットを「重量 × 回数 ÷ 10」で10回あたりの重さに換算し、その日の平均を表示します（例：20kg×5回 も 10kg×10回 も 10kg）。',
+        calc: (sets) => avg(sets.map((s) => (s.weight * s.reps) / 10)),
+        fmt: (v) => String(r1(v)),
+      },
+      max: {
+        label: '最大重量',
+        note: 'その日のセットの中で一番重い重量です。',
+        calc: (sets) => Math.max(...sets.map((s) => s.weight)),
+        fmt: (v) => fmtNum(v),
+      },
+      e1rm: {
+        label: '推定1RM',
+        note: '1回だけ挙げられる重さの推定値（Epley式：重量 × (1 + 回数 ÷ 30)）の、その日の最大値です。筋力の伸びを見るときによく使われる指標です。',
+        calc: (sets) => Math.max(...sets.map((s) => s.weight * (1 + s.reps / 30))),
+        fmt: (v) => String(r1(v)),
+      },
+      volume: {
+        label: '総ボリューム',
+        note: 'その日の「重量 × 回数」の合計です。トレーニング量の目安になります。',
+        calc: (sets) => sets.reduce((a, s) => a + s.weight * s.reps, 0),
+        fmt: (v) => fmtVol(v),
+      },
+    };
+    const STAT_RANGES = [['30', '30日'], ['90', '90日'], ['365', '1年'], ['all', '全期間']];
+
+    // 記録がある種目（最近トレーニングした順）
+    function exercisesWithRecords() {
+      const last = new Map();
+      for (const d of Object.keys(state.workouts).sort()) {
+        for (const en of state.workouts[d]) {
+          if (validSets(en.sets).length) last.set(en.exerciseId, d);
+        }
+      }
+      return state.exercises
+        .filter((e) => last.has(e.id))
+        .sort((a, b) => (last.get(b.id) < last.get(a.id) ? -1 : 1));
+    }
+
+    function statSeries() {
+      const cutoff = ui.statRange === 'all' ? '' : addDays(todayStr(), -Number(ui.statRange) + 1);
+      if (ui.statTarget === BW_TARGET) {
+        return Object.keys(state.bodyweight).sort().filter((d) => d >= cutoff)
+          .map((d) => ({ date: d, value: state.bodyweight[d], detail: '' }));
+      }
+      const metric = STAT_METRICS[ui.statMetric];
+      const out = [];
+      for (const d of Object.keys(state.workouts).sort()) {
+        if (d < cutoff) continue;
+        const en = state.workouts[d].find((e) => e.exerciseId === ui.statTarget);
+        const vs = en ? validSets(en.sets) : [];
+        if (!vs.length) continue;
+        out.push({
+          date: d,
+          value: metric.calc(vs),
+          detail: vs.map((s) => `${fmtNum(s.weight)}×${s.reps}`).join(', '),
+        });
+      }
+      return out;
+    }
+
+    function niceScale(min, max, count = 4) {
+      if (min === max) { const pad = Math.abs(min) * 0.05 || 1; min -= pad; max += pad; }
+      const raw = (max - min) / count;
+      const mag = 10 ** Math.floor(Math.log10(raw));
+      const n = raw / mag;
+      const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+      const lo = Math.floor(min / step) * step;
+      const hi = Math.ceil(max / step) * step;
+      const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9) + (step / mag === 2.5 ? 1 : 0));
+      const ticks = [];
+      for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(decimals)));
+      return { lo, hi, ticks, decimals };
+    }
+
+    function svgEl(tag, attrs = {}) {
+      const el = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    function drawChart(box, points, { color, fmt, unit }) {
+      box.innerHTML = '';
+      const W = box.clientWidth;
+      if (!W) return;
+      const H = W < 500 ? 230 : 270;
+      const m = { t: 18, r: 16, b: 28, l: 44 };
+      const pw = W - m.l - m.r, ph = H - m.t - m.b;
+
+      const times = points.map((p) => parseDate(p.date).getTime());
+      const t0 = times[0], t1 = times[times.length - 1];
+      const xOf = (t) => (t1 === t0 ? m.l + pw / 2 : m.l + ((t - t0) / (t1 - t0)) * pw);
+      const vals = points.map((p) => p.value);
+      const sc = niceScale(Math.min(...vals), Math.max(...vals));
+      const yOf = (v) => m.t + ph - ((v - sc.lo) / (sc.hi - sc.lo)) * ph;
+
+      const svg = svgEl('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img' });
+      svg.style.touchAction = 'pan-y';
+      svg.style.display = 'block';
+
+      // 目盛り・グリッド（控えめな実線のヘアライン）
+      for (const v of sc.ticks) {
+        const y = yOf(v);
+        svg.appendChild(svgEl('line', { x1: m.l, x2: W - m.r, y1: y, y2: y, stroke: 'rgba(255,255,255,0.07)', 'stroke-width': 1 }));
+        const t = svgEl('text', { x: m.l - 8, y: y + 4, 'text-anchor': 'end', fill: '#64748b', 'font-size': 11, 'font-variant-numeric': 'tabular-nums' });
+        t.textContent = v.toLocaleString('ja-JP', { maximumFractionDigits: sc.decimals });
+        svg.appendChild(t);
+      }
+
+      // X軸の日付ラベル
+      const spanYears = new Date(t1).getFullYear() !== new Date(t0).getFullYear();
+      const xLabel = (t) => { const d = new Date(t); return spanYears ? `${String(d.getFullYear()).slice(2)}/${d.getMonth() + 1}/${d.getDate()}` : `${d.getMonth() + 1}/${d.getDate()}`; };
+      const nX = t1 === t0 ? 1 : Math.max(2, Math.min(5, Math.floor(pw / 90)));
+      for (let i = 0; i < nX; i++) {
+        const t = nX === 1 ? t0 : t0 + ((t1 - t0) * i) / (nX - 1);
+        const anchor = nX === 1 ? 'middle' : i === 0 ? 'start' : i === nX - 1 ? 'end' : 'middle';
+        const tx = svgEl('text', { x: xOf(t), y: H - 8, 'text-anchor': anchor, fill: '#64748b', 'font-size': 11 });
+        tx.textContent = xLabel(t);
+        svg.appendChild(tx);
+      }
+
+      // 折れ線（2px・角丸）
+      const pts = points.map((p, i) => [xOf(times[i]), yOf(p.value)]);
+      if (pts.length > 1) {
+        svg.appendChild(svgEl('path', {
+          d: pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(''),
+          fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+        }));
+      }
+
+      // 点（背景色のリング付き）。点が多いときは最新の点だけ表示
+      const showAll = pts.length <= 60;
+      pts.forEach(([x, y], i) => {
+        if (!showAll && i !== pts.length - 1) return;
+        svg.appendChild(svgEl('circle', { cx: x, cy: y, r: 4, fill: color, stroke: CHART_SURFACE, 'stroke-width': 2 }));
+      });
+
+      // 最新値だけ直接ラベル
+      const [lx, ly] = pts[pts.length - 1];
+      const endLabel = svgEl('text', {
+        x: lx, y: ly - 10, 'text-anchor': pts.length === 1 ? 'middle' : 'end',
+        fill: '#e2e8f0', 'font-size': 12, 'font-weight': 700,
+      });
+      endLabel.textContent = `${fmt(points[points.length - 1].value)}${unit}`;
+      svg.appendChild(endLabel);
+
+      // ホバー：縦の補助線＋ツールチップ（最も近い日付にスナップ）
+      const cross = svgEl('line', { y1: m.t, y2: m.t + ph, stroke: '#64748b', 'stroke-width': 1, visibility: 'hidden' });
+      const focus = svgEl('circle', { r: 6, fill: color, stroke: CHART_SURFACE, 'stroke-width': 2, visibility: 'hidden' });
+      svg.appendChild(cross);
+      svg.appendChild(focus);
+      const hit = svgEl('rect', { x: m.l - 12, y: 0, width: pw + 24, height: H, fill: 'transparent' });
+      svg.appendChild(hit);
+      box.appendChild(svg);
+
+      const tip = document.createElement('div');
+      tip.className = 'pointer-events-none absolute z-10 hidden min-w-[7rem] rounded-xl bg-slate-800/95 px-3 py-2 text-left shadow-2xl ring-1 ring-white/10 backdrop-blur';
+      const tipVal = document.createElement('div');
+      tipVal.className = 'text-sm font-extrabold text-white';
+      const tipDate = document.createElement('div');
+      tipDate.className = 'text-[11px] font-semibold text-slate-400';
+      const tipDetail = document.createElement('div');
+      tipDetail.className = 'mt-0.5 max-w-[14rem] text-[11px] text-slate-500';
+      tip.append(tipVal, tipDate, tipDetail);
+      box.appendChild(tip);
+
+      const show = (clientX) => {
+        const rect = svg.getBoundingClientRect();
+        const px = clientX - rect.left;
+        let best = 0;
+        for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - px) < Math.abs(pts[best][0] - px)) best = i;
+        const [x, y] = pts[best];
+        const p = points[best];
+        cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('visibility', 'visible');
+        focus.setAttribute('cx', x); focus.setAttribute('cy', y); focus.setAttribute('visibility', 'visible');
+        tipVal.textContent = `${fmt(p.value)}${unit}`;
+        tipDate.textContent = fmtDateJP(p.date);
+        tipDetail.textContent = p.detail;
+        tipDetail.style.display = p.detail ? '' : 'none';
+        tip.classList.remove('hidden');
+        const tw = tip.offsetWidth, th = tip.offsetHeight;
+        let left = x + 12;
+        if (left + tw > W) left = x - tw - 12;
+        tip.style.left = `${Math.max(0, left)}px`;
+        tip.style.top = `${Math.max(0, Math.min(y - th / 2, H - th))}px`;
+      };
+      const hide = () => {
+        cross.setAttribute('visibility', 'hidden');
+        focus.setAttribute('visibility', 'hidden');
+        tip.classList.add('hidden');
+      };
+      hit.addEventListener('pointermove', (e) => show(e.clientX));
+      hit.addEventListener('pointerdown', (e) => show(e.clientX));
+      hit.addEventListener('pointerleave', hide);
+    }
+
+    function statTile(label, value, sub = '', subClass = 'text-slate-500') {
+      return `
+        <div class="card px-3 py-3">
+          <div class="text-[11px] font-semibold text-slate-500">${label}</div>
+          <div class="mt-1 text-xl font-extrabold">${value}</div>
+          <div class="mt-0.5 text-[11px] font-semibold ${subClass}">${sub || '&nbsp;'}</div>
+        </div>`;
+    }
+
+    function renderAnalytics() {
+      const lifts = exercisesWithRecords();
+      const hasBW = Object.keys(state.bodyweight).length > 0;
+      const validTarget = ui.statTarget === BW_TARGET ? hasBW : lifts.some((e) => e.id === ui.statTarget);
+      if (!validTarget) ui.statTarget = lifts.length ? lifts[0].id : hasBW ? BW_TARGET : '';
+      if (!STAT_METRICS[ui.statMetric]) ui.statMetric = 'e10';
+      const isBW = ui.statTarget === BW_TARGET;
+
+      // 対象の選択
+      const sel = $('#statTarget');
+      sel.innerHTML =
+        (lifts.length ? `<optgroup label="種目">${lifts.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')}</optgroup>` : '') +
+        (hasBW ? `<optgroup label="体重"><option value="${BW_TARGET}">体重</option></optgroup>` : '');
+      sel.value = ui.statTarget;
+      sel.disabled = !ui.statTarget;
+
+      // 期間
+      $('#statRange').innerHTML = STAT_RANGES.map(([v, label]) => `
+        <button data-range="${v}" class="rounded-lg px-2.5 py-1.5 text-xs font-bold transition ${ui.statRange === v ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'}">${label}</button>`).join('');
+
+      // 指標（体重のときは不要）
+      $('#statMetric').innerHTML = isBW ? '' : Object.entries(STAT_METRICS).map(([k, mt]) => `
+        <button data-metric="${k}" class="rounded-full px-3 py-1.5 text-xs font-bold ring-1 transition ${ui.statMetric === k ? 'bg-violet-500/20 text-violet-200 ring-violet-400/50' : 'text-slate-400 ring-white/10 hover:text-slate-200'}">${mt.label}</button>`).join('');
+      $('#statMetricNote').textContent = isBW ? '記録した日の体重の推移です。' : STAT_METRICS[ui.statMetric].note;
+
+      const chartBox = $('#statChart');
+      const tiles = $('#statTiles');
+      const table = $('#statTable');
+      const toggle = $('#statTableToggle');
+
+      if (!ui.statTarget) {
+        tiles.innerHTML = '';
+        $('#statTitle').textContent = 'まだ記録がありません';
+        $('#statSubtitle').textContent = '';
+        chartBox.innerHTML = `<p class="py-12 text-center text-sm text-slate-500">筋トレか体重を記録すると、ここに推移のグラフが表示されます</p>`;
+        table.classList.add('hidden');
+        toggle.classList.add('hidden');
+        icons();
+        return;
+      }
+
+      const points = statSeries();
+      const metric = STAT_METRICS[ui.statMetric];
+      const fmt = isBW ? (v) => v.toFixed(2) : metric.fmt;
+      const unit = 'kg';
+      const name = isBW ? '体重' : (getExercise(ui.statTarget) || {}).name || '';
+      const rangeLabel = STAT_RANGES.find(([v]) => v === ui.statRange)[1];
+      $('#statTitle').textContent = isBW ? '体重の推移' : `${name}・${metric.label}`;
+      $('#statSubtitle').textContent = `${rangeLabel}・${points.length}回の記録`;
+      toggle.classList.remove('hidden');
+
+      if (!points.length) {
+        tiles.innerHTML = '';
+        chartBox.innerHTML = `<p class="py-12 text-center text-sm text-slate-500">この期間には記録がありません。期間を広げてみてください。</p>`;
+        table.classList.add('hidden');
+        icons();
+        return;
+      }
+
+      // 数値のまとめ
+      const first = points[0], last = points[points.length - 1];
+      const diff = last.value - first.value;
+      let diffText = '—', diffClass = 'text-slate-500';
+      if (points.length > 1) {
+        const sign = diff > 0 ? '+' : diff < 0 ? '-' : '±';
+        const abs = Math.abs(diff);
+        diffText = `${diff > 0 ? '↑' : diff < 0 ? '↓' : '→'} ${sign}${isBW ? abs.toFixed(2) : metric.fmt(abs)}kg`;
+        if (!isBW) diffClass = diff > 0 ? 'text-emerald-300' : diff < 0 ? 'text-rose-300' : 'text-amber-300';
+        else diffClass = 'text-slate-300';
+      }
+      const maxP = points.reduce((a, p) => (p.value > a.value ? p : a));
+      const minP = points.reduce((a, p) => (p.value < a.value ? p : a));
+      const unitSpan = '<span class="text-xs font-semibold text-slate-400">kg</span>';
+      tiles.innerHTML = [
+        statTile('最新', `${fmt(last.value)}${unitSpan}`, fmtShort(last.date)),
+        statTile('期間の変化', points.length > 1 ? `<span class="${diffClass}">${diffText}</span>` : '—', points.length > 1 ? `${fmtShort(first.date)}から` : '記録が1回のみ'),
+        isBW
+          ? statTile('期間の最低', `${fmt(minP.value)}${unitSpan}`, fmtShort(minP.date))
+          : statTile('期間ベスト', `${fmt(maxP.value)}${unitSpan}`, fmtShort(maxP.date)),
+        isBW
+          ? statTile('期間の最高', `${fmt(maxP.value)}${unitSpan}`, fmtShort(maxP.date))
+          : statTile('記録回数', `${points.length}<span class="text-xs font-semibold text-slate-400">回</span>`, rangeLabel),
+      ].join('');
+
+      drawChart(chartBox, points, { color: isBW ? CHART_COLOR.bodyweight : CHART_COLOR.lift, fmt, unit });
+
+      // 表（グラフと同じ値）
+      toggle.querySelector('span').textContent = ui.statTable ? '表を閉じる' : '表で見る';
+      table.classList.toggle('hidden', !ui.statTable);
+      if (ui.statTable) {
+        table.innerHTML = `
+          <div class="max-h-80 overflow-y-auto rounded-xl ring-1 ring-white/5">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 bg-slate-800 text-[11px] text-slate-400">
+                <tr><th class="px-3 py-2 text-left font-semibold">日付</th><th class="px-3 py-2 text-right font-semibold">${isBW ? '体重' : esc(metric.label)} (kg)</th>${isBW ? '' : '<th class="px-3 py-2 text-left font-semibold">セット</th>'}</tr>
+              </thead>
+              <tbody class="divide-y divide-white/5">
+                ${points.slice().reverse().map((p) => `
+                  <tr>
+                    <td class="whitespace-nowrap px-3 py-2 text-slate-300">${fmtShort(p.date)}</td>
+                    <td class="px-3 py-2 text-right font-bold tabular-nums">${fmt(p.value)}</td>
+                    ${isBW ? '' : `<td class="px-3 py-2 text-xs text-slate-500">${esc(p.detail)}</td>`}
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      }
+      icons();
+    }
+
+    $('#statTarget').addEventListener('change', (e) => { ui.statTarget = e.target.value; saveUI(); renderAnalytics(); });
+    $('#statRange').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-range]');
+      if (b) { ui.statRange = b.dataset.range; saveUI(); renderAnalytics(); }
+    });
+    $('#statMetric').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-metric]');
+      if (b) { ui.statMetric = b.dataset.metric; saveUI(); renderAnalytics(); }
+    });
+    $('#statTableToggle').addEventListener('click', () => { ui.statTable = !ui.statTable; renderAnalytics(); });
+    // 画面幅が変わったらグラフを描き直す
+    let lastChartWidth = 0;
+    new ResizeObserver(() => {
+      const w = $('#statChart').clientWidth;
+      if (ui.tab === 'stats' && w && w !== lastChartWidth) { lastChartWidth = w; renderAnalytics(); }
+    }).observe($('#statChart'));
 
     /* =========================================================
      * 全体描画
