@@ -1630,11 +1630,18 @@
       if (/api-not-enabled|has not been used|is disabled|SERVICE_DISABLED/i.test(msg)) {
         return 'FirebaseでAI Logicが有効になっていません。Firebaseコンソールの「AI サービス → AI Logic」で「始める」を押し、「Gemini Developer API」を選んで設定してください。';
       }
-      if (/429|quota|RESOURCE_EXHAUSTED|rate/i.test(msg)) return '無料枠の利用上限に達したか、混み合っています。しばらく時間をおいてからお試しください。';
+      if (/genai config not found|genai-config-not-found/i.test(msg)) {
+        return 'FirebaseのAI Logicの設定が完了していません。Firebaseコンソールの「AI サービス → AI Logic」を開き、「始める」から「Gemini Developer API」を選んで最後まで進めてください。';
+      }
+      if (/\b429\b|quota|RESOURCE_EXHAUSTED|rate.?limit/i.test(msg)) return '無料枠の利用上限に達したか、混み合っています。しばらく時間をおいてからお試しください。';
       if (/network|fetch|Failed to fetch/i.test(msg)) return 'ネットワークに接続できません。';
       return `AIの呼び出しに失敗しました（${msg.slice(0, 160)}）`;
     }
-    const isModelNotFound = (e) => /404|not found|NOT_FOUND|is not supported|unsupported model|limit:\s*0|free.?tier/i.test(String((e && e.message) || e));
+    const isModelNotFound = (e) => {
+      const msg = String((e && e.message) || e);
+      if (/genai config not found/i.test(msg)) return false;
+      return /\b404\b|is not found|NOT_FOUND|is not supported|unsupported model|limit:\s*0|free.?tier/i.test(msg);
+    };
 
     async function getAIModel() {
       if (!aiState.mod) aiState.mod = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-ai.js`);
