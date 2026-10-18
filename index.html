@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#020617">
   <title>LiftLog - 筋トレ重量メモ＆体重記録</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="LiftLog">
 
   <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -2509,6 +2513,11 @@
     if (mode === 'local') save();
     renderAll();
     initCloud();
+
+    // アプリとしてインストールできるようにし、電波がなくても開けるようにする
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service Worker の登録に失敗しました', e));
+    }
   })();
   </script>
 </body>
