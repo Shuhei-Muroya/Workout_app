@@ -1735,31 +1735,70 @@
       icons();
     }
 
+    // スマホの音声認識は途中経過を「前の分も含めて」何度も返すことがあるため、
+    // 後ろの結果が前の結果を含んでいる場合は前の方を捨てて重複を防ぐ
+    function sessionTranscript(results) {
+      const parts = [];
+      for (let i = 0; i < results.length; i++) {
+        const t = results[i][0].transcript.trim();
+        const next = i + 1 < results.length ? results[i + 1][0].transcript.trim() : '';
+        if (!t || (next && next.startsWith(t))) continue;
+        if (parts.length && t.startsWith(parts[parts.length - 1])) parts[parts.length - 1] = t;
+        else parts.push(t);
+      }
+      return parts.join(' ');
+    }
+    const joinSpeech = (...xs) => xs.filter((x) => x && x.trim()).map((x) => x.trim()).join('、');
+
+    let speechBase = '', speechDone = '', speechNow = '', stopRequested = false;
+
+    function startRecognizer() {
+      const area = $('#bulkText');
+      recognizer = new SpeechRec();
+      recognizer.lang = 'ja-JP';
+      recognizer.interimResults = true;
+      recognizer.continuous = false; // 一区切りごとに確定（続けて話している間は自動で再開）
+      recognizer.onresult = (e) => {
+        speechNow = sessionTranscript(e.results);
+        area.value = joinSpeech(speechBase, speechDone, speechNow);
+        renderBulkPreview();
+      };
+      recognizer.onerror = (e) => {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          stopRequested = true;
+          toast('マイクの使用が許可されていません。ブラウザの設定を確認してください', 'error');
+        } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          toast(`音声認識エラー（${e.error}）`, 'error');
+        }
+      };
+      recognizer.onend = () => {
+        const heard = speechNow;
+        speechDone = joinSpeech(speechDone, speechNow);
+        speechNow = '';
+        area.value = joinSpeech(speechBase, speechDone);
+        // 何か聞き取れていて、停止ボタンが押されていなければ続けて聞く
+        if (listening && !stopRequested && heard) {
+          try { startRecognizer(); return; } catch { /* 下で終了 */ }
+        }
+        listening = false;
+        renderMic();
+        renderBulkPreview();
+      };
+      recognizer.start();
+    }
+
     function toggleMic() {
       if (!SpeechRec) {
         toast('このブラウザは音声認識に対応していません。キーボードのマイクボタンで入力してください', 'error');
         return;
       }
-      if (listening) { recognizer.stop(); return; }
-      const area = $('#bulkText');
-      const base = area.value.trim() ? `${area.value.trim()}、` : '';
-      recognizer = new SpeechRec();
-      recognizer.lang = 'ja-JP';
-      recognizer.interimResults = true;
-      recognizer.continuous = true;
-      recognizer.onresult = (e) => {
-        let text = '';
-        for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
-        area.value = base + text;
-        renderBulkPreview();
-      };
-      recognizer.onerror = (e) => {
-        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('マイクの使用が許可されていません。ブラウザの設定を確認してください', 'error');
-        else if (e.error !== 'no-speech' && e.error !== 'aborted') toast(`音声認識エラー（${e.error}）`, 'error');
-      };
-      recognizer.onend = () => { listening = false; renderMic(); renderBulkPreview(); };
+      if (listening) { stopRequested = true; recognizer.stop(); return; }
+      speechBase = $('#bulkText').value.trim();
+      speechDone = '';
+      speechNow = '';
+      stopRequested = false;
       try {
-        recognizer.start();
+        startRecognizer();
         listening = true;
         renderMic();
       } catch (e) {
@@ -1772,7 +1811,7 @@
       const show = open ?? panel.classList.contains('hidden');
       panel.classList.toggle('hidden', !show);
       $('#btnBulkToggle').classList.toggle('hidden', show);
-      if (!show && listening) recognizer.stop();
+      if (!show && listening) { stopRequested = true; recognizer.stop(); }
       if (show) { renderBulkPreview(); setTimeout(() => $('#bulkText').focus(), 50); }
     }
 
